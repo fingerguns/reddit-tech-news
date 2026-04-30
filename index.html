@@ -85,9 +85,56 @@
       cursor: pointer;
       transition: all 0.15s;
     }
-    .filter-btn.active, .filter-btn:hover {
+    /* None & All — keep neutral accent */
+    .filter-btn:not([data-source]):hover,
+    .filter-btn:not([data-source]).active {
       background: var(--accent);
       border-color: var(--accent);
+      color: #fff;
+    }
+    .filter-btn[data-source="reddit"] {
+      border-color: rgba(139, 92, 246, 0.42);
+      color: var(--src-reddit-soft);
+      background: rgba(139, 92, 246, 0.1);
+    }
+    .filter-btn[data-source="reddit"]:hover {
+      border-color: var(--src-reddit);
+      background: rgba(139, 92, 246, 0.22);
+      color: #ede9fe;
+    }
+    .filter-btn[data-source="reddit"].active {
+      background: rgba(139, 92, 246, 0.32);
+      border-color: var(--src-reddit-soft);
+      color: #fff;
+    }
+    .filter-btn[data-source="hackernews"] {
+      border-color: rgba(245, 158, 11, 0.45);
+      color: var(--src-hn-soft);
+      background: rgba(245, 158, 11, 0.1);
+    }
+    .filter-btn[data-source="hackernews"]:hover {
+      border-color: var(--src-hn);
+      background: rgba(245, 158, 11, 0.22);
+      color: #fffbeb;
+    }
+    .filter-btn[data-source="hackernews"].active {
+      background: rgba(245, 158, 11, 0.32);
+      border-color: var(--src-hn-soft);
+      color: #fff;
+    }
+    .filter-btn[data-source="techmeme"] {
+      border-color: rgba(20, 184, 166, 0.45);
+      color: var(--src-tm-soft);
+      background: rgba(20, 184, 166, 0.1);
+    }
+    .filter-btn[data-source="techmeme"]:hover {
+      border-color: var(--src-tm);
+      background: rgba(20, 184, 166, 0.22);
+      color: #ccfbf1;
+    }
+    .filter-btn[data-source="techmeme"].active {
+      background: rgba(20, 184, 166, 0.32);
+      border-color: var(--src-tm-soft);
       color: #fff;
     }
 
@@ -480,107 +527,107 @@
 <div class="filter-bar" id="filterBar">
   <button class="filter-btn active" data-filter="none" onclick="filterSubs('none', this)">None</button>
   <button class="filter-btn" data-filter="all" onclick="filterSubs('all', this)">All</button>
-  <button class="filter-btn" data-filter="technology" onclick="filterSubs('technology', this)">Technology</button>
-  <button class="filter-btn" data-filter="tech" onclick="filterSubs('tech', this)">Tech</button>
-  <button class="filter-btn" data-filter="MachineLearning" onclick="filterSubs('MachineLearning', this)">Machine Learning</button>
-  <button class="filter-btn" data-filter="artificial" onclick="filterSubs('artificial', this)">Artificial Intel.</button>
-  <button class="filter-btn" data-filter="singularity" onclick="filterSubs('singularity', this)">Singularity</button>
-  <button class="filter-btn" data-filter="programming" onclick="filterSubs('programming', this)">Programming</button>
-  <button class="filter-btn" data-filter="webdev" onclick="filterSubs('webdev', this)">Web Dev</button>
-  <button class="filter-btn" data-filter="devops" onclick="filterSubs('devops', this)">DevOps</button>
-  <button class="filter-btn" data-filter="Python" onclick="filterSubs('Python', this)">Python</button>
-  <button class="filter-btn" data-filter="javascript" onclick="filterSubs('javascript', this)">JavaScript</button>
-  <button class="filter-btn" data-filter="rust" onclick="filterSubs('rust', this)">Rust</button>
-  <button class="filter-btn" data-filter="golang" onclick="filterSubs('golang', this)">Go</button>
-  <button class="filter-btn" data-filter="netsec" onclick="filterSubs('netsec', this)">Net Security</button>
-  <button class="filter-btn" data-filter="cybersecurity" onclick="filterSubs('cybersecurity', this)">Cyber Security</button>
-  <button class="filter-btn" data-filter="hardware" onclick="filterSubs('hardware', this)">Hardware</button>
-  <button class="filter-btn" data-filter="linux" onclick="filterSubs('linux', this)">Linux</button>
-  <button class="filter-btn" data-filter="compsci" onclick="filterSubs('compsci', this)">Comp. Sci.</button>
-  <button class="filter-btn" data-filter="datascience" onclick="filterSubs('datascience', this)">Data Science</button>
-  <button class="filter-btn" data-filter="java" onclick="filterSubs('java', this)">Java</button>
-  <button class="filter-btn" data-filter="Kotlin" onclick="filterSubs('Kotlin', this)">Kotlin</button>
-  <button class="filter-btn" data-filter="scala" onclick="filterSubs('scala', this)">Scala</button>
-  <button class="filter-btn" data-filter="Clojure" onclick="filterSubs('Clojure', this)">Clojure</button>
-  <button class="filter-btn" data-filter="cpp" onclick="filterSubs('cpp', this)">C++</button>
-  <button class="filter-btn" data-filter="C_Programming" onclick="filterSubs('C_Programming', this)">C</button>
-  <button class="filter-btn" data-filter="csharp" onclick="filterSubs('csharp', this)">C#</button>
-  <button class="filter-btn" data-filter="ruby" onclick="filterSubs('ruby', this)">Ruby</button>
-  <button class="filter-btn" data-filter="php" onclick="filterSubs('php', this)">PHP</button>
-  <button class="filter-btn" data-filter="swift" onclick="filterSubs('swift', this)">Swift</button>
-  <button class="filter-btn" data-filter="dartlang" onclick="filterSubs('dartlang', this)">Dart</button>
-  <button class="filter-btn" data-filter="elixir" onclick="filterSubs('elixir', this)">Elixir</button>
-  <button class="filter-btn" data-filter="haskell" onclick="filterSubs('haskell', this)">Haskell</button>
-  <button class="filter-btn" data-filter="zig" onclick="filterSubs('zig', this)">Zig</button>
-  <button class="filter-btn" data-filter="typescript" onclick="filterSubs('typescript', this)">TypeScript</button>
-  <button class="filter-btn" data-filter="reactjs" onclick="filterSubs('reactjs', this)">React</button>
-  <button class="filter-btn" data-filter="vuejs" onclick="filterSubs('vuejs', this)">Vue.js</button>
-  <button class="filter-btn" data-filter="angular" onclick="filterSubs('angular', this)">Angular</button>
-  <button class="filter-btn" data-filter="nextjs" onclick="filterSubs('nextjs', this)">Next.js</button>
-  <button class="filter-btn" data-filter="sveltejs" onclick="filterSubs('sveltejs', this)">Svelte</button>
-  <button class="filter-btn" data-filter="tailwindcss" onclick="filterSubs('tailwindcss', this)">Tailwind</button>
-  <button class="filter-btn" data-filter="css" onclick="filterSubs('css', this)">CSS</button>
-  <button class="filter-btn" data-filter="Frontend" onclick="filterSubs('Frontend', this)">Frontend</button>
-  <button class="filter-btn" data-filter="sysadmin" onclick="filterSubs('sysadmin', this)">Sysadmin</button>
-  <button class="filter-btn" data-filter="selfhosted" onclick="filterSubs('selfhosted', this)">Self-hosted</button>
-  <button class="filter-btn" data-filter="homelab" onclick="filterSubs('homelab', this)">Homelab</button>
-  <button class="filter-btn" data-filter="kubernetes" onclick="filterSubs('kubernetes', this)">Kubernetes</button>
-  <button class="filter-btn" data-filter="docker" onclick="filterSubs('docker', this)">Docker</button>
-  <button class="filter-btn" data-filter="terraform" onclick="filterSubs('terraform', this)">Terraform</button>
-  <button class="filter-btn" data-filter="ansible" onclick="filterSubs('ansible', this)">Ansible</button>
-  <button class="filter-btn" data-filter="aws" onclick="filterSubs('aws', this)">AWS</button>
-  <button class="filter-btn" data-filter="azure" onclick="filterSubs('azure', this)">Azure</button>
-  <button class="filter-btn" data-filter="googlecloud" onclick="filterSubs('googlecloud', this)">Google Cloud</button>
-  <button class="filter-btn" data-filter="cloudcomputing" onclick="filterSubs('cloudcomputing', this)">Cloud</button>
-  <button class="filter-btn" data-filter="androiddev" onclick="filterSubs('androiddev', this)">Android Dev</button>
-  <button class="filter-btn" data-filter="iOSProgramming" onclick="filterSubs('iOSProgramming', this)">iOS</button>
-  <button class="filter-btn" data-filter="FlutterDev" onclick="filterSubs('FlutterDev', this)">Flutter</button>
-  <button class="filter-btn" data-filter="dotnet" onclick="filterSubs('dotnet', this)">.NET</button>
-  <button class="filter-btn" data-filter="windows" onclick="filterSubs('windows', this)">Windows</button>
-  <button class="filter-btn" data-filter="MacOS" onclick="filterSubs('MacOS', this)">macOS</button>
-  <button class="filter-btn" data-filter="nlp" onclick="filterSubs('nlp', this)">NLP</button>
-  <button class="filter-btn" data-filter="ComputerVision" onclick="filterSubs('ComputerVision', this)">Computer Vision</button>
-  <button class="filter-btn" data-filter="LocalLLaMA" onclick="filterSubs('LocalLLaMA', this)">Local LLM</button>
-  <button class="filter-btn" data-filter="OpenAI" onclick="filterSubs('OpenAI', this)">OpenAI</button>
-  <button class="filter-btn" data-filter="StableDiffusion" onclick="filterSubs('StableDiffusion', this)">Stable Diffusion</button>
-  <button class="filter-btn" data-filter="PostgreSQL" onclick="filterSubs('PostgreSQL', this)">PostgreSQL</button>
-  <button class="filter-btn" data-filter="Database" onclick="filterSubs('Database', this)">Database</button>
-  <button class="filter-btn" data-filter="SQL" onclick="filterSubs('SQL', this)">SQL</button>
-  <button class="filter-btn" data-filter="BusinessIntelligence" onclick="filterSubs('BusinessIntelligence', this)">BI</button>
-  <button class="filter-btn" data-filter="analytics" onclick="filterSubs('analytics', this)">Analytics</button>
-  <button class="filter-btn" data-filter="ReverseEngineering" onclick="filterSubs('ReverseEngineering', this)">Reverse Eng.</button>
-  <button class="filter-btn" data-filter="Malware" onclick="filterSubs('Malware', this)">Malware</button>
-  <button class="filter-btn" data-filter="privacy" onclick="filterSubs('privacy', this)">Privacy</button>
-  <button class="filter-btn" data-filter="PrivacyToolsIO" onclick="filterSubs('PrivacyToolsIO', this)">Privacy Tools</button>
-  <button class="filter-btn" data-filter="TOR" onclick="filterSubs('TOR', this)">Tor</button>
-  <button class="filter-btn" data-filter="pcmasterrace" onclick="filterSubs('pcmasterrace', this)">PCMR</button>
-  <button class="filter-btn" data-filter="buildapc" onclick="filterSubs('buildapc', this)">Build a PC</button>
-  <button class="filter-btn" data-filter="nvidia" onclick="filterSubs('nvidia', this)">NVIDIA</button>
-  <button class="filter-btn" data-filter="AMD" onclick="filterSubs('AMD', this)">AMD</button>
-  <button class="filter-btn" data-filter="arduino" onclick="filterSubs('arduino', this)">Arduino</button>
-  <button class="filter-btn" data-filter="electronics" onclick="filterSubs('electronics', this)">Electronics</button>
-  <button class="filter-btn" data-filter="FPGA" onclick="filterSubs('FPGA', this)">FPGA</button>
-  <button class="filter-btn" data-filter="embedded" onclick="filterSubs('embedded', this)">Embedded</button>
-  <button class="filter-btn" data-filter="Apple" onclick="filterSubs('Apple', this)">Apple</button>
-  <button class="filter-btn" data-filter="Android" onclick="filterSubs('Android', this)">Android</button>
-  <button class="filter-btn" data-filter="gamedev" onclick="filterSubs('gamedev', this)">Game Dev</button>
-  <button class="filter-btn" data-filter="Unity3D" onclick="filterSubs('Unity3D', this)">Unity</button>
-  <button class="filter-btn" data-filter="unrealengine" onclick="filterSubs('unrealengine', this)">Unreal</button>
-  <button class="filter-btn" data-filter="GraphicsProgramming" onclick="filterSubs('GraphicsProgramming', this)">Graphics</button>
-  <button class="filter-btn" data-filter="Vulkan" onclick="filterSubs('Vulkan', this)">Vulkan</button>
-  <button class="filter-btn" data-filter="Futurology" onclick="filterSubs('Futurology', this)">Futurology</button>
-  <button class="filter-btn" data-filter="science" onclick="filterSubs('science', this)">Science</button>
-  <button class="filter-btn" data-filter="Physics" onclick="filterSubs('Physics', this)">Physics</button>
-  <button class="filter-btn" data-filter="SpaceX" onclick="filterSubs('SpaceX', this)">SpaceX</button>
-  <button class="filter-btn" data-filter="NASA" onclick="filterSubs('NASA', this)">NASA</button>
-  <button class="filter-btn" data-filter="robotics" onclick="filterSubs('robotics', this)">Robotics</button>
-  <button class="filter-btn" data-filter="bioinformatics" onclick="filterSubs('bioinformatics', this)">Bioinformatics</button>
-  <button class="filter-btn" data-filter="startups" onclick="filterSubs('startups', this)">Startups</button>
-  <button class="filter-btn" data-filter="SaaS" onclick="filterSubs('SaaS', this)">SaaS</button>
-  <button class="filter-btn" data-filter="technews" onclick="filterSubs('technews', this)">Tech News</button>
-  <button class="filter-btn" data-filter="gadgets" onclick="filterSubs('gadgets', this)">Gadgets</button>
-  <button class="filter-btn" data-filter="hackernews" onclick="filterSubs('hackernews', this)">Hacker News</button>
-  <button class="filter-btn" data-filter="techmeme" onclick="filterSubs('techmeme', this)">TechMeme</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="technology" onclick="filterSubs('technology', this)">Technology</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="tech" onclick="filterSubs('tech', this)">Tech</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="MachineLearning" onclick="filterSubs('MachineLearning', this)">Machine Learning</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="artificial" onclick="filterSubs('artificial', this)">Artificial Intel.</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="singularity" onclick="filterSubs('singularity', this)">Singularity</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="programming" onclick="filterSubs('programming', this)">Programming</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="webdev" onclick="filterSubs('webdev', this)">Web Dev</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="devops" onclick="filterSubs('devops', this)">DevOps</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Python" onclick="filterSubs('Python', this)">Python</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="javascript" onclick="filterSubs('javascript', this)">JavaScript</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="rust" onclick="filterSubs('rust', this)">Rust</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="golang" onclick="filterSubs('golang', this)">Go</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="netsec" onclick="filterSubs('netsec', this)">Net Security</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="cybersecurity" onclick="filterSubs('cybersecurity', this)">Cyber Security</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="hardware" onclick="filterSubs('hardware', this)">Hardware</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="linux" onclick="filterSubs('linux', this)">Linux</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="compsci" onclick="filterSubs('compsci', this)">Comp. Sci.</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="datascience" onclick="filterSubs('datascience', this)">Data Science</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="java" onclick="filterSubs('java', this)">Java</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Kotlin" onclick="filterSubs('Kotlin', this)">Kotlin</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="scala" onclick="filterSubs('scala', this)">Scala</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Clojure" onclick="filterSubs('Clojure', this)">Clojure</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="cpp" onclick="filterSubs('cpp', this)">C++</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="C_Programming" onclick="filterSubs('C_Programming', this)">C</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="csharp" onclick="filterSubs('csharp', this)">C#</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="ruby" onclick="filterSubs('ruby', this)">Ruby</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="php" onclick="filterSubs('php', this)">PHP</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="swift" onclick="filterSubs('swift', this)">Swift</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="dartlang" onclick="filterSubs('dartlang', this)">Dart</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="elixir" onclick="filterSubs('elixir', this)">Elixir</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="haskell" onclick="filterSubs('haskell', this)">Haskell</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="zig" onclick="filterSubs('zig', this)">Zig</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="typescript" onclick="filterSubs('typescript', this)">TypeScript</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="reactjs" onclick="filterSubs('reactjs', this)">React</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="vuejs" onclick="filterSubs('vuejs', this)">Vue.js</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="angular" onclick="filterSubs('angular', this)">Angular</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="nextjs" onclick="filterSubs('nextjs', this)">Next.js</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="sveltejs" onclick="filterSubs('sveltejs', this)">Svelte</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="tailwindcss" onclick="filterSubs('tailwindcss', this)">Tailwind</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="css" onclick="filterSubs('css', this)">CSS</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Frontend" onclick="filterSubs('Frontend', this)">Frontend</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="sysadmin" onclick="filterSubs('sysadmin', this)">Sysadmin</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="selfhosted" onclick="filterSubs('selfhosted', this)">Self-hosted</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="homelab" onclick="filterSubs('homelab', this)">Homelab</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="kubernetes" onclick="filterSubs('kubernetes', this)">Kubernetes</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="docker" onclick="filterSubs('docker', this)">Docker</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="terraform" onclick="filterSubs('terraform', this)">Terraform</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="ansible" onclick="filterSubs('ansible', this)">Ansible</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="aws" onclick="filterSubs('aws', this)">AWS</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="azure" onclick="filterSubs('azure', this)">Azure</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="googlecloud" onclick="filterSubs('googlecloud', this)">Google Cloud</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="cloudcomputing" onclick="filterSubs('cloudcomputing', this)">Cloud</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="androiddev" onclick="filterSubs('androiddev', this)">Android Dev</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="iOSProgramming" onclick="filterSubs('iOSProgramming', this)">iOS</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="FlutterDev" onclick="filterSubs('FlutterDev', this)">Flutter</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="dotnet" onclick="filterSubs('dotnet', this)">.NET</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="windows" onclick="filterSubs('windows', this)">Windows</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="MacOS" onclick="filterSubs('MacOS', this)">macOS</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="nlp" onclick="filterSubs('nlp', this)">NLP</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="ComputerVision" onclick="filterSubs('ComputerVision', this)">Computer Vision</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="LocalLLaMA" onclick="filterSubs('LocalLLaMA', this)">Local LLM</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="OpenAI" onclick="filterSubs('OpenAI', this)">OpenAI</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="StableDiffusion" onclick="filterSubs('StableDiffusion', this)">Stable Diffusion</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="PostgreSQL" onclick="filterSubs('PostgreSQL', this)">PostgreSQL</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Database" onclick="filterSubs('Database', this)">Database</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="SQL" onclick="filterSubs('SQL', this)">SQL</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="BusinessIntelligence" onclick="filterSubs('BusinessIntelligence', this)">BI</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="analytics" onclick="filterSubs('analytics', this)">Analytics</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="ReverseEngineering" onclick="filterSubs('ReverseEngineering', this)">Reverse Eng.</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Malware" onclick="filterSubs('Malware', this)">Malware</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="privacy" onclick="filterSubs('privacy', this)">Privacy</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="PrivacyToolsIO" onclick="filterSubs('PrivacyToolsIO', this)">Privacy Tools</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="TOR" onclick="filterSubs('TOR', this)">Tor</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="pcmasterrace" onclick="filterSubs('pcmasterrace', this)">PCMR</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="buildapc" onclick="filterSubs('buildapc', this)">Build a PC</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="nvidia" onclick="filterSubs('nvidia', this)">NVIDIA</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="AMD" onclick="filterSubs('AMD', this)">AMD</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="arduino" onclick="filterSubs('arduino', this)">Arduino</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="electronics" onclick="filterSubs('electronics', this)">Electronics</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="FPGA" onclick="filterSubs('FPGA', this)">FPGA</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="embedded" onclick="filterSubs('embedded', this)">Embedded</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Apple" onclick="filterSubs('Apple', this)">Apple</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Android" onclick="filterSubs('Android', this)">Android</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="gamedev" onclick="filterSubs('gamedev', this)">Game Dev</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Unity3D" onclick="filterSubs('Unity3D', this)">Unity</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="unrealengine" onclick="filterSubs('unrealengine', this)">Unreal</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="GraphicsProgramming" onclick="filterSubs('GraphicsProgramming', this)">Graphics</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Vulkan" onclick="filterSubs('Vulkan', this)">Vulkan</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Futurology" onclick="filterSubs('Futurology', this)">Futurology</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="science" onclick="filterSubs('science', this)">Science</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="Physics" onclick="filterSubs('Physics', this)">Physics</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="SpaceX" onclick="filterSubs('SpaceX', this)">SpaceX</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="NASA" onclick="filterSubs('NASA', this)">NASA</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="robotics" onclick="filterSubs('robotics', this)">Robotics</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="bioinformatics" onclick="filterSubs('bioinformatics', this)">Bioinformatics</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="startups" onclick="filterSubs('startups', this)">Startups</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="SaaS" onclick="filterSubs('SaaS', this)">SaaS</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="technews" onclick="filterSubs('technews', this)">Tech News</button>
+  <button type="button" class="filter-btn" data-source="reddit" data-filter="gadgets" onclick="filterSubs('gadgets', this)">Gadgets</button>
+  <button type="button" class="filter-btn" data-source="hackernews" data-filter="hackernews" onclick="filterSubs('hackernews', this)">Hacker News</button>
+  <button type="button" class="filter-btn" data-source="techmeme" data-filter="techmeme" onclick="filterSubs('techmeme', this)">TechMeme</button>
   
 </div>
 

@@ -517,9 +517,56 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       cursor: pointer;
       transition: all 0.15s;
     }}
-    .filter-btn.active, .filter-btn:hover {{
+    /* None & All — keep neutral accent */
+    .filter-btn:not([data-source]):hover,
+    .filter-btn:not([data-source]).active {{
       background: var(--accent);
       border-color: var(--accent);
+      color: #fff;
+    }}
+    .filter-btn[data-source="reddit"] {{
+      border-color: rgba(139, 92, 246, 0.42);
+      color: var(--src-reddit-soft);
+      background: rgba(139, 92, 246, 0.1);
+    }}
+    .filter-btn[data-source="reddit"]:hover {{
+      border-color: var(--src-reddit);
+      background: rgba(139, 92, 246, 0.22);
+      color: #ede9fe;
+    }}
+    .filter-btn[data-source="reddit"].active {{
+      background: rgba(139, 92, 246, 0.32);
+      border-color: var(--src-reddit-soft);
+      color: #fff;
+    }}
+    .filter-btn[data-source="hackernews"] {{
+      border-color: rgba(245, 158, 11, 0.45);
+      color: var(--src-hn-soft);
+      background: rgba(245, 158, 11, 0.1);
+    }}
+    .filter-btn[data-source="hackernews"]:hover {{
+      border-color: var(--src-hn);
+      background: rgba(245, 158, 11, 0.22);
+      color: #fffbeb;
+    }}
+    .filter-btn[data-source="hackernews"].active {{
+      background: rgba(245, 158, 11, 0.32);
+      border-color: var(--src-hn-soft);
+      color: #fff;
+    }}
+    .filter-btn[data-source="techmeme"] {{
+      border-color: rgba(20, 184, 166, 0.45);
+      color: var(--src-tm-soft);
+      background: rgba(20, 184, 166, 0.1);
+    }}
+    .filter-btn[data-source="techmeme"]:hover {{
+      border-color: var(--src-tm);
+      background: rgba(20, 184, 166, 0.22);
+      color: #ccfbf1;
+    }}
+    .filter-btn[data-source="techmeme"].active {{
+      background: rgba(20, 184, 166, 0.32);
+      border-color: var(--src-tm-soft);
       color: #fff;
     }}
 
@@ -1321,8 +1368,10 @@ def build_html(all_posts: dict[str, list[dict]]) -> str:
             continue
         total_posts += min(len(posts), EMBED_PER_CARD)
         cards_html += build_card_html(sub, posts, EMBED_PER_CARD)
+        src_esc = html.escape(sub["source"])
         filter_btns += (
-            f'<button class="filter-btn" data-filter="{html.escape(name)}" '
+            f'<button type="button" class="filter-btn" data-source="{src_esc}" '
+            f'data-filter="{html.escape(name)}" '
             f'onclick="filterSubs(\'{html.escape(name)}\', this)">{html.escape(sub["label"])}</button>\n  '
         )
         src = sub["source"]
