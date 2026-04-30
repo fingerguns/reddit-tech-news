@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """
-Reddit + Hacker News Tech Digest
-Fetches from Reddit subreddits and Hacker News, generates a static HTML page.
+Reddit + Hacker News + TechMeme Tech Digest
+Fetches from Reddit subreddits, Hacker News RSS-style river (Firebase API),
+and TechMeme (official RSS), generates a static HTML page.
 Usage: python scraper.py
        python scraper.py --output my_page.html
        python scraper.py --min-score 50
 """
 
 import argparse
+import hashlib
 import html
 import json
 import os
 import re
 import sys
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 try:
@@ -143,8 +147,12 @@ SUBREDDITS = [
 
 HEADERS = {
     "User-Agent": "TechNewsScraper/1.0 (personal use; https://github.com/)",
-    "Accept": "application/json",
+    "Accept": "application/json, application/rss+xml, text/xml;q=0.9, */*;q=0.8",
 }
+
+TECHMEME_FEED_URL = "https://www.techmeme.com/feed.xml"
+TECHMEME_FETCH_N  = 40  # RSS items to ingest per run
+_TM_OUTBOUND_HREF = re.compile(r'href="(https?://[^"]+)"', re.I)
 
 POSTS_PER_SUB  = 25   # posts to fetch per subreddit per endpoint
 EMBED_PER_CARD = 25   # posts to embed per card (JS picks top 5 from these)
@@ -155,9 +163,10 @@ HN_TOP_URL  = "https://hacker-news.firebaseio.com/v0/topstories.json"
 HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{}.json"
 HN_FETCH_N  = 80  # top story IDs to resolve (one batch per scraper run)
 
-# Cards below Top 5: all Reddit subs + one Hacker News card (source labels JS/CSS)
+# Cards below Top 5: all Reddit subs + Hacker News + TechMeme (source labels JS/CSS)
 CARD_FEEDS = [{**s, "source": "reddit"} for s in SUBREDDITS] + [
     {"name": "hackernews", "label": "Hacker News", "color": "#f59e0b", "source": "hackernews"},
+    {"name": "techmeme", "label": "TechMeme", "color": "#14b8a6", "source": "techmeme"},
 ]
 # ── Fetch ──────────────────────────────────────────────────────────────────────
 
@@ -249,6 +258,70 @@ def fetch_hackernews(min_score: int = MIN_SCORE) -> list[dict]:
             continue
     return out
 
+
+def _techmeme_outbound_url(description: str, fallback: str) -> str:
+    """TechMeme RSS <link> points at the river permalink; article URL lives in HTML description."""
+    if not description:
+        return fallback
+    for m in _TM_OUTBOUND_HREF.finditer(description):
+        u = m.group(1)
+        if "techmeme.com" not in u.lower():
+            return u
+    return fallback
+
+
+def _parse_rfc822_ts(pub: str) -> float:
+    if not pub or not pub.strip():
+        return 0.0
+    try:
+        return parsedate_to_datetime(pub.strip()).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def fetch_techmeme(min_score: int = MIN_SCORE) -> list[dict]:
+    """TechMeme homepage river via official RSS (feed order ≈ editorial priority)."""
+    try:
+        r = requests.get(TECHMEME_FEED_URL, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+    except (requests.RequestException, ET.ParseError):
+        return []
+
+    out: list[dict] = []
+    for i, item in enumerate(root.findall(".//item")):
+        if len(out) >= TECHMEME_FETCH_N:
+            break
+        title_el = item.find("title")
+        link_el = item.find("link")
+        pub_el = item.find("pubDate")
+        desc_el = item.find("description")
+        title = (title_el.text or "").strip() if title_el is not None and title_el.text else ""
+        permalink = (link_el.text or "").strip() if link_el is not None and link_el.text else ""
+        if not title or not permalink:
+            continue
+        desc = (desc_el.text or "") if desc_el is not None and desc_el.text else ""
+        pub = (pub_el.text or "").strip() if pub_el is not None and pub_el.text else ""
+        article = _techmeme_outbound_url(desc, permalink)
+        created = _parse_rfc822_ts(pub)
+        # Synthetic score preserves RSS order inside the TechMeme pool (no Reddit-style votes).
+        score = 10_000 - i * 10
+        out.append({
+            "id": f"tm_{hashlib.sha256(permalink.encode()).hexdigest()[:12]}",
+            "title": title,
+            "score": score,
+            "created_utc": created,
+            "url": article,
+            "permalink": permalink,
+            "num_comments": 0,
+            "source": "techmeme",
+            "subreddit": "techmeme",
+            "link_flair_text": None,
+            "over_18": False,
+        })
+    return out
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def relative_time(utc_ts: float) -> str:
@@ -283,6 +356,11 @@ def story_link(post: dict) -> str:
         if u.startswith("http") and "news.ycombinator.com" not in u:
             return u
         return post["permalink"]
+    if post.get("source") == "techmeme":
+        u = (post.get("url") or "").strip()
+        if u.startswith("http"):
+            return u
+        return post.get("permalink") or u
     permalink = reddit_link(post)
     ext_url = post.get("url", permalink)
     if "reddit.com" in ext_url or "redd.it" in ext_url:
@@ -294,6 +372,8 @@ def comments_link(post: dict) -> str:
     """Thread / comments URL."""
     if post.get("source") == "hackernews":
         return post["permalink"]
+    if post.get("source") == "techmeme":
+        return post.get("permalink") or story_link(post)
     return reddit_link(post)
 
 
@@ -351,7 +431,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fingerguns: Reddit &amp; Hacker News digest</title>
+  <title>Fingerguns: Reddit, HN &amp; TechMeme digest</title>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
@@ -375,6 +455,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       --src-hn:           #f59e0b;
       --src-hn-soft:      #fbbf24;
       --src-hn-deep:      #d97706;
+      --src-tm:           #14b8a6;
+      --src-tm-soft:      #2dd4bf;
+      --src-tm-deep:      #0d9488;
     }}
 
     html {{ scroll-behavior: smooth; }}
@@ -520,6 +603,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       background: rgba(245,158,11,0.14);
       color: var(--src-hn-soft);
     }}
+    .source-btn.active[data-src="techmeme"] {{
+      border-color: var(--src-tm);
+      background: rgba(20,184,166,0.14);
+      color: var(--src-tm-soft);
+    }}
 
     /* ── Top 5 row ── */
     .top5-row {{
@@ -528,13 +616,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       flex-wrap: wrap;
       gap: 16px;
       justify-content: center;
-      max-width: 960px;
+      max-width: 1480px;
       margin: 0 auto;
     }}
     .top5-col {{
-      flex: 1 1 340px;
-      max-width: 460px;
-      min-width: 280px;
+      flex: 1 1 300px;
+      max-width: 520px;
+      min-width: 260px;
     }}
     .top5-card {{
       width: 100%;
@@ -555,6 +643,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       display: block;
       height: 3px;
       background: linear-gradient(90deg, var(--src-hn-soft), var(--src-hn), var(--src-hn-deep));
+    }}
+    .top5-card--tm::before {{
+      content: '';
+      display: block;
+      height: 3px;
+      background: linear-gradient(90deg, var(--src-tm-soft), var(--src-tm), var(--src-tm-deep));
     }}
     .top5-header {{
       display: flex;
@@ -655,6 +749,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }}
     .sub-card[data-source="hackernews"] {{
       border-left: 4px solid var(--src-hn);
+    }}
+    .sub-card[data-source="techmeme"] {{
+      border-left: 4px solid var(--src-tm);
     }}
     .sub-card.hidden {{ display: none; }}
     .sub-header {{
@@ -804,12 +901,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 
 <header>
-  <div class="logo">Fingerguns: Reddit &amp; Hacker News digest</div>
+  <div class="logo">Fingerguns: Reddit, HN &amp; TechMeme digest</div>
   <span class="generated">Generated {generated_at}</span>
 </header>
 
 <div class="filter-bar" id="filterBar">
-  <button class="filter-btn active" data-filter="all" onclick="filterSubs('all', this)">All</button>
+  <button class="filter-btn" data-filter="all" onclick="filterSubs('all', this)">All</button>
   {filter_buttons}
 </div>
 
@@ -825,6 +922,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <span class="source-label">Source</span>
     <button type="button" class="source-btn active" data-src="reddit" onclick="toggleSource(this)">Reddit</button>
     <button type="button" class="source-btn active" data-src="hackernews" onclick="toggleSource(this)">Hacker News</button>
+    <button type="button" class="source-btn active" data-src="techmeme" onclick="toggleSource(this)">TechMeme</button>
   </div>
 </div>
 
@@ -847,6 +945,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div id="hn-top5-items"></div>
     </div>
   </div>
+  <div class="top5-col" data-source-panel="techmeme">
+    <div class="top5-card top5-card--tm">
+      <div class="top5-header">
+        <span class="top5-header-title">TechMeme Top 5</span>
+        <span class="top5-header-sub">from river RSS &middot; duplicates removed</span>
+      </div>
+      <div id="techmeme-top5-items"></div>
+    </div>
+  </div>
 </div>
 
 <main id="grid">
@@ -854,8 +961,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </main>
 
 <footer>
-  Data from <a href="https://www.reddit.com" target="_blank">Reddit</a> public API
-  &amp; <a href="https://github.com/HackerNews/API" target="_blank">Hacker News</a> (Firebase)
+  Data from <a href="https://www.reddit.com" target="_blank">Reddit</a> public API,
+  <a href="https://github.com/HackerNews/API" target="_blank">Hacker News</a> (Firebase),
+  &amp; <a href="https://www.techmeme.com/" target="_blank">TechMeme</a> RSS
   &middot; {total_posts} posts in grid &middot; Generated locally once daily
 </footer>
 
@@ -961,6 +1069,11 @@ def build_card_html(sub_info: dict, posts: list[dict], embed_limit: int = EMBED_
             f'<a href="https://news.ycombinator.com/" target="_blank" rel="noopener">'
             f'{html.escape(label)}</a>'
         )
+    elif src == "techmeme":
+        sub_title = (
+            f'<a href="https://www.techmeme.com/" target="_blank" rel="noopener">'
+            f'{html.escape(label)}</a>'
+        )
     else:
         sub_title = (
             f'<a href="https://www.reddit.com/r/{html.escape(name)}" target="_blank" '
@@ -1039,7 +1152,9 @@ function esc(s) {{
 const RANK_COLORS = ['#f0c040', '#b0bec5', '#cd7f32', '#4a5068', '#4a5068'];
 
 function top5BadgeLabel(post) {{
-  return post.source === 'hackernews' ? 'Hacker News' : ('r/' + post.sub);
+  if (post.source === 'hackernews') return 'Hacker News';
+  if (post.source === 'techmeme') return 'TechMeme';
+  return 'r/' + post.sub;
 }}
 
 function renderTop5Column(containerId, pool, timeWindow) {{
@@ -1053,9 +1168,9 @@ function renderTop5Column(containerId, pool, timeWindow) {{
     return;
   }}
   container.innerHTML = top5.map((post, i) => {{
-    const color = post.source === 'hackernews'
-      ? '#f59e0b'
-      : (SUB_COLORS[post.sub] || '#5c6bc0');
+    let color = SUB_COLORS[post.sub] || '#5c6bc0';
+    if (post.source === 'hackernews') color = '#f59e0b';
+    else if (post.source === 'techmeme') color = '#14b8a6';
     const rankColor = RANK_COLORS[i];
     const domainTag = post.domain ? `<span class="post-domain">${{esc(post.domain)}}</span>` : '';
     const lbl = top5BadgeLabel(post);
@@ -1079,8 +1194,10 @@ function renderTop5Column(containerId, pool, timeWindow) {{
 function renderTop5(timeWindow) {{
   const redditP = ALL_POSTS.filter(p => p.source === 'reddit');
   const hnP = ALL_POSTS.filter(p => p.source === 'hackernews');
+  const tmP = ALL_POSTS.filter(p => p.source === 'techmeme');
   renderTop5Column('reddit-top5-items', redditP, timeWindow);
   renderTop5Column('hn-top5-items', hnP, timeWindow);
+  renderTop5Column('techmeme-top5-items', tmP, timeWindow);
   applyTop5SearchFilter();
 }}
 
@@ -1092,16 +1209,19 @@ function applyTop5SearchFilter() {{
   }});
 }}
 
-let activeSubFilter  = 'all';
+/** Subreddit / source cards in main grid: hidden until user picks All or a feed in the nav. Top 5 row is separate. */
+let activeSubFilter  = '';
 let activeTimeWindow = 604800;
 let showReddit       = true;
 let showHN           = true;
+let showTechMeme     = true;
 
 function toggleSource(btn) {{
   const src = btn.dataset.src;
   const on = btn.classList.toggle('active');
   if (src === 'reddit') showReddit = on;
-  else showHN = on;
+  else if (src === 'hackernews') showHN = on;
+  else if (src === 'techmeme') showTechMeme = on;
   document.querySelectorAll('[data-source-panel="' + src + '"]').forEach(el => {{
     el.style.display = on ? '' : 'none';
   }});
@@ -1160,10 +1280,13 @@ function applyFilters() {{
     if (emptyMsg) emptyMsg.style.display = shown === 0 ? '' : 'none';
 
     const sub      = card.getAttribute('data-sub') || '';
-    const subMatch = activeSubFilter === 'all' || sub === activeSubFilter;
+    const subMatch =
+      activeSubFilter === 'all' ||
+      (activeSubFilter !== '' && sub === activeSubFilter);
     const sourceOk =
       (src === 'reddit' && showReddit) ||
-      (src === 'hackernews' && showHN);
+      (src === 'hackernews' && showHN) ||
+      (src === 'techmeme' && showTechMeme);
 
     card.style.display = (sourceOk && subMatch && shown > 0) ? '' : 'none';
   }});
@@ -1236,7 +1359,7 @@ def main():
     parser.add_argument("--open",      action="store_true", help="Open the page in a browser when done")
     args = parser.parse_args()
 
-    print("Tech digest scraper (Reddit + Hacker News)")
+    print("Tech digest scraper (Reddit + Hacker News + TechMeme)")
     print("=" * 40)
     print(f"Fetching Reddit ({len(SUBREDDITS)} subs)…\n")
 
@@ -1245,6 +1368,10 @@ def main():
     print("\n  Hacker News (Firebase API) …", end=" ", flush=True)
     all_posts["hackernews"] = fetch_hackernews(min_score=args.min_score)
     print(f"{len(all_posts['hackernews'])} posts")
+
+    print("\n  TechMeme (RSS) …", end=" ", flush=True)
+    all_posts["techmeme"] = fetch_techmeme(min_score=args.min_score)
+    print(f"{len(all_posts['techmeme'])} posts")
 
     print(f"\nBuilding HTML…")
     page_html = build_html(all_posts)
