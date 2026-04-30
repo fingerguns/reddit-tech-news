@@ -43781,8 +43781,24 @@ function applyTop5SearchFilter() {
   });
 }
 
-/** Subreddit / source cards in main grid: hidden until user picks All or a feed in the nav. Top 5 row is separate. */
-let activeSubFilter  = '';
+/** Grid cards: multi-select feed pills (toggle). None clears all; All selects every feed (click again clears). */
+const selectedFeeds = new Set();
+
+function getAllFeedFilters() {
+  return [...document.querySelectorAll('.filter-btn[data-source]')]
+    .map(b => b.dataset.filter)
+    .filter(Boolean);
+}
+
+function syncNoneAllButtons() {
+  const feeds = getAllFeedFilters();
+  const noneBtn = document.querySelector('.filter-btn[data-filter="none"]');
+  const allBtn = document.querySelector('.filter-btn[data-filter="all"]');
+  const allOn = feeds.length > 0 && feeds.every(f => selectedFeeds.has(f));
+  if (noneBtn) noneBtn.classList.toggle('active', selectedFeeds.size === 0);
+  if (allBtn) allBtn.classList.toggle('active', allOn);
+}
+
 let activeTimeWindow = 604800;
 let showReddit       = true;
 let showHN           = true;
@@ -43802,9 +43818,36 @@ function toggleSource(btn) {
 }
 
 function filterSubs(filter, btn) {
-  activeSubFilter = filter === 'none' ? '' : filter;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  if (filter === 'none') {
+    selectedFeeds.clear();
+    document.querySelectorAll('.filter-btn[data-source]').forEach(b => b.classList.remove('active'));
+    syncNoneAllButtons();
+    applyFilters();
+    return;
+  }
+  if (filter === 'all') {
+    const feeds = getAllFeedFilters();
+    const allOn = feeds.length > 0 && feeds.every(f => selectedFeeds.has(f));
+    if (allOn) {
+      selectedFeeds.clear();
+      document.querySelectorAll('.filter-btn[data-source]').forEach(b => b.classList.remove('active'));
+    } else {
+      selectedFeeds.clear();
+      feeds.forEach(f => selectedFeeds.add(f));
+      document.querySelectorAll('.filter-btn[data-source]').forEach(b => b.classList.add('active'));
+    }
+    syncNoneAllButtons();
+    applyFilters();
+    return;
+  }
+  if (selectedFeeds.has(filter)) {
+    selectedFeeds.delete(filter);
+    btn.classList.remove('active');
+  } else {
+    selectedFeeds.add(filter);
+    btn.classList.add('active');
+  }
+  syncNoneAllButtons();
   applyFilters();
 }
 
@@ -43852,9 +43895,7 @@ function applyFilters() {
     if (emptyMsg) emptyMsg.style.display = shown === 0 ? '' : 'none';
 
     const sub      = card.getAttribute('data-sub') || '';
-    const subMatch =
-      activeSubFilter === 'all' ||
-      (activeSubFilter !== '' && sub === activeSubFilter);
+    const subMatch = selectedFeeds.has(sub);
     const sourceOk =
       (src === 'reddit' && showReddit) ||
       (src === 'hackernews' && showHN) ||
@@ -43870,6 +43911,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const weekBtn = document.querySelector('.time-btn[data-window="604800"]');
   if (weekBtn) weekBtn.classList.add('active');
   renderTop5(activeTimeWindow);
+  syncNoneAllButtons();
   applyFilters();
 });
 </script>
