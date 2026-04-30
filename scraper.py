@@ -280,7 +280,11 @@ def _parse_rfc822_ts(pub: str) -> float:
 
 
 def fetch_techmeme(min_score: int = MIN_SCORE) -> list[dict]:
-    """TechMeme homepage river via official RSS (feed order ≈ editorial priority)."""
+    """TechMeme homepage river via official RSS.
+
+    Items are newest-first in the feed; we assign synthetic scores so the UI ranks by that
+    feed order (not votes — unlike Reddit/HN scores).
+    """
     try:
         r = requests.get(TECHMEME_FEED_URL, headers=HEADERS, timeout=20)
         r.raise_for_status()
@@ -906,6 +910,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </header>
 
 <div class="filter-bar" id="filterBar">
+  <button class="filter-btn active" data-filter="none" onclick="filterSubs('none', this)">None</button>
   <button class="filter-btn" data-filter="all" onclick="filterSubs('all', this)">All</button>
   {filter_buttons}
 </div>
@@ -948,8 +953,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <div class="top5-col" data-source-panel="techmeme">
     <div class="top5-card top5-card--tm">
       <div class="top5-header">
-        <span class="top5-header-title">TechMeme Top 5</span>
-        <span class="top5-header-sub">from river RSS &middot; duplicates removed</span>
+        <span class="top5-header-title">TechMeme Latest 5</span>
+        <span class="top5-header-sub">RSS river order (newest first) &middot; duplicates removed</span>
       </div>
       <div id="techmeme-top5-items"></div>
     </div>
@@ -1230,7 +1235,7 @@ function toggleSource(btn) {{
 }}
 
 function filterSubs(filter, btn) {{
-  activeSubFilter = filter;
+  activeSubFilter = filter === 'none' ? '' : filter;
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   applyFilters();
