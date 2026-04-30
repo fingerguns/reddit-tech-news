@@ -188,7 +188,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tech News — Reddit Digest</title>
+  <title>Fingerguns: A Reddit tech digest</title>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
@@ -232,30 +232,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       gap: 12px;
     }}
     .logo {{
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 700;
       letter-spacing: -0.3px;
     }}
-    .logo svg {{ color: #ff6314; }}
     .generated {{
       font-size: 12px;
       color: var(--muted);
     }}
-    .refresh-btn {{
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 6px 14px;
-      border-radius: 6px;
-      font-size: 12px;
-      cursor: pointer;
-      text-decoration: none;
-      transition: border-color 0.15s;
-    }}
-    .refresh-btn:hover {{ border-color: var(--accent); }}
 
     /* ── Filter bar ── */
     .filter-bar {{
@@ -595,15 +579,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 
 <header>
-  <div class="logo">
-    <svg width="22" height="22" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="10" cy="10" r="10"/>
-      <path fill="#fff" d="M16.67 10a1.46 1.46 0 0 0-2.47-1 7.16 7.16 0 0 0-3.85-1.22l.65-3.08 2.13.45a1 1 0 1 0 .1-.49l-2.38-.5a.12.12 0 0 0-.14.09l-.73 3.43a7.15 7.15 0 0 0-3.87 1.22 1.46 1.46 0 1 0-1.61 2.37 2.84 2.84 0 0 0 0 .38c0 1.94 2.26 3.51 5.05 3.51s5.05-1.57 5.05-3.51a2.84 2.84 0 0 0 0-.38 1.46 1.46 0 0 0 .02-2.27ZM7.5 10.75a.75.75 0 1 1 .75.75.75.75 0 0 1-.75-.75Zm4.2 2a2.77 2.77 0 0 1-1.7.46 2.77 2.77 0 0 1-1.7-.46.15.15 0 0 1 .2-.22 2.47 2.47 0 0 0 1.5.37 2.47 2.47 0 0 0 1.5-.37.15.15 0 1 1 .2.22Zm-.2-1.27a.75.75 0 1 1 .75-.75.75.75 0 0 1-.75.75Z"/>
-    </svg>
-    Tech News — Reddit Digest
-  </div>
+  <div class="logo">Fingerguns: A Reddit tech digest</div>
   <span class="generated">Generated {generated_at}</span>
-  <a class="refresh-btn" href="#" onclick="location.reload()">↻ Refresh</a>
 </header>
 
 <div class="filter-bar" id="filterBar">
@@ -857,7 +834,7 @@ function renderTop5(timeWindow) {{
 }}
 
 let activeSubFilter  = 'all';
-let activeTimeWindow = 86400; // default: past day
+let activeTimeWindow = 604800; // default: past week
 
 function filterSubs(filter, btn) {{
   activeSubFilter = filter;
@@ -920,8 +897,8 @@ function applyFilters() {{
 }}
 
 document.addEventListener('DOMContentLoaded', () => {{
-  const dayBtn = document.querySelector('.time-btn[data-window="86400"]');
-  if (dayBtn) dayBtn.classList.add('active');
+  const weekBtn = document.querySelector('.time-btn[data-window="604800"]');
+  if (weekBtn) weekBtn.classList.add('active');
   renderTop5(activeTimeWindow);
   applyFilters();
 }});
@@ -988,7 +965,7 @@ def main():
 
     print("Reddit Tech News Scraper")
     print("=" * 40)
-    print(f"Fetching hot posts from {len(SUBREDDITS)} subreddits…\n")
+    print(f"Fetching posts from {len(SUBREDDITS)} tech subreddits…\n")
 
     all_posts = fetch_all(min_score=args.min_score)
 
