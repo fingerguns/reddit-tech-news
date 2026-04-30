@@ -508,6 +508,15 @@
       font-size: 11px;
     }
     .post-comments:hover { color: var(--text); }
+    /* TechMeme: RSS items have no Reddit/HN-style votes or comment counts here */
+    .sub-card[data-source="techmeme"] .score-col,
+    .sub-card[data-source="techmeme"] .post-comments {
+      display: none;
+    }
+    #techmeme-top5-items .top5-score,
+    #techmeme-top5-items .post-comments {
+      display: none;
+    }
     .flair {
       background: rgba(92,107,192,0.2);
       color: #a5b4fc;
