@@ -504,8 +504,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
+      background: transparent;
     }}
     .filter-btn {{
       border: 1px solid var(--border);
@@ -568,6 +567,45 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       background: rgba(20, 184, 166, 0.32);
       border-color: var(--src-tm-soft);
       color: #fff;
+    }}
+
+    /* ── Feed drawer (mobile): collapsed by default ── */
+    .filter-drawer {{
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }}
+    .filter-drawer-toggle {{
+      display: none;
+      width: 100%;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 24px;
+      border: none;
+      border-bottom: 1px solid transparent;
+      background: var(--surface);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s;
+    }}
+    .filter-drawer-toggle:hover {{
+      background: var(--surface2);
+    }}
+    .filter-drawer-chevron {{
+      flex-shrink: 0;
+      font-size: 12px;
+      color: var(--muted);
+      transition: transform 0.2s ease;
+    }}
+    .filter-drawer.is-open .filter-drawer-chevron {{
+      transform: rotate(180deg);
+    }}
+    .filter-drawer-panel {{
+      display: block;
     }}
 
     /* ── Search + time filters ── */
@@ -944,8 +982,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     @media (max-width: 600px) {{
       main {{ padding: 12px; gap: 12px; }}
       header {{ padding: 10px 12px; }}
-      .filter-bar {{ padding: 10px 12px; }}
+      .filter-bar {{ padding: 10px 12px; border-bottom: none; }}
       .search-wrap {{ padding: 10px 12px 0; }}
+      .filter-drawer-toggle {{
+        display: flex;
+        padding: 10px 12px;
+      }}
+      .filter-drawer-panel {{
+        display: none;
+        max-height: min(52vh, 400px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }}
+      .filter-drawer.is-open .filter-drawer-panel {{
+        display: block;
+      }}
     }}
   </style>
 </head>
@@ -956,10 +1007,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <span class="generated">Generated {generated_at}</span>
 </header>
 
+<div class="filter-drawer" id="filterDrawer">
+  <button type="button" class="filter-drawer-toggle" id="filterDrawerToggle" onclick="toggleFilterDrawer()" aria-expanded="false" aria-controls="filterDrawerPanel">
+    <span class="filter-drawer-toggle-label">Browse feeds</span>
+    <span class="filter-drawer-chevron" aria-hidden="true">▾</span>
+  </button>
+  <div class="filter-drawer-panel" id="filterDrawerPanel">
 <div class="filter-bar" id="filterBar">
   <button class="filter-btn active" data-filter="none" onclick="filterSubs('none', this)">None</button>
   <button class="filter-btn" data-filter="all" onclick="filterSubs('all', this)">All</button>
   {filter_buttons}
+</div>
+  </div>
 </div>
 
 <div class="search-wrap">
@@ -1277,6 +1336,14 @@ function syncNoneAllButtons() {{
   const allOn = feeds.length > 0 && feeds.every(f => selectedFeeds.has(f));
   if (noneBtn) noneBtn.classList.toggle('active', selectedFeeds.size === 0);
   if (allBtn) allBtn.classList.toggle('active', allOn);
+}}
+
+function toggleFilterDrawer() {{
+  const drawer = document.getElementById('filterDrawer');
+  const btn = document.getElementById('filterDrawerToggle');
+  if (!drawer || !btn) return;
+  drawer.classList.toggle('is-open');
+  btn.setAttribute('aria-expanded', drawer.classList.contains('is-open') ? 'true' : 'false');
 }}
 
 let activeTimeWindow = 604800;
