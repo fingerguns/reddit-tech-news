@@ -1,4 +1,4 @@
-name: Daily Tech News Scrape
+name: Daily digest (Reddit + Hacker News)
 
 on:
   schedule:

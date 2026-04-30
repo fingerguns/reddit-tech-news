@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Reddit Tech News Scraper
-Fetches top posts from popular tech subreddits and generates a static HTML page.
+Reddit + Hacker News Tech Digest
+Fetches from Reddit subreddits and Hacker News, generates a static HTML page.
 Usage: python scraper.py
        python scraper.py --output my_page.html
-       python scraper.py --limit 20 --min-score 50
+       python scraper.py --min-score 50
 """
 
 import argparse
@@ -61,6 +61,14 @@ EMBED_PER_CARD = 25   # posts to embed per card (JS picks top 5 from these)
 MIN_SCORE      = 10   # minimum upvote score to display
 REQUEST_DELAY  = 2.0  # seconds between requests (Reddit recommends ≥2s unauthenticated)
 
+HN_TOP_URL  = "https://hacker-news.firebaseio.com/v0/topstories.json"
+HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{}.json"
+HN_FETCH_N  = 80  # top story IDs to resolve (one batch per scraper run)
+
+# Cards below Top 5: all Reddit subs + one Hacker News card (source labels JS/CSS)
+CARD_FEEDS = [{**s, "source": "reddit"} for s in SUBREDDITS] + [
+    {"name": "hackernews", "label": "Hacker News", "color": "#f59e0b", "source": "hackernews"},
+]
 # ── Fetch ──────────────────────────────────────────────────────────────────────
 
 def _fetch_endpoint(url: str, retries: int = 3) -> list[dict]:
@@ -101,11 +109,55 @@ def fetch_all(min_score: int = MIN_SCORE) -> dict[str, list[dict]]:
         name = sub["name"]
         print(f"  [{i:2}/{total}] r/{name} …", end=" ", flush=True)
         posts    = fetch_subreddit(name)
-        filtered = [p for p in posts if p.get("score", 0) >= min_score]
+        filtered = [{**p, "source": "reddit"} for p in posts if p.get("score", 0) >= min_score]
         results[name] = filtered
         print(f"{len(filtered)} posts")
     return results
 
+
+def normalize_hn_item(raw: dict | None) -> dict | None:
+    if not raw or raw.get("type") != "story":
+        return None
+    if raw.get("dead") or raw.get("deleted"):
+        return None
+    hid = raw["id"]
+    url = raw.get("url") or f"https://news.ycombinator.com/item?id={hid}"
+    permalink = f"https://news.ycombinator.com/item?id={hid}"
+    return {
+        "id": f"hn_{hid}",
+        "title": raw.get("title", ""),
+        "score": int(raw.get("score") or 0),
+        "created_utc": float(raw.get("time") or 0),
+        "url": url,
+        "permalink": permalink,
+        "num_comments": int(raw.get("descendants") or 0),
+        "source": "hackernews",
+        "subreddit": "hackernews",
+        "link_flair_text": None,
+        "over_18": False,
+    }
+
+
+def fetch_hackernews(min_score: int = MIN_SCORE) -> list[dict]:
+    """Top HN stories — single batch during the same scraper run as Reddit."""
+    try:
+        r = requests.get(HN_TOP_URL, headers=HEADERS, timeout=15)
+        r.raise_for_status()
+        ids = r.json()[:HN_FETCH_N]
+    except requests.RequestException:
+        return []
+
+    out: list[dict] = []
+    for hid in ids:
+        try:
+            ir = requests.get(HN_ITEM_URL.format(hid), headers=HEADERS, timeout=10)
+            ir.raise_for_status()
+            row = normalize_hn_item(ir.json())
+            if row and row["score"] >= min_score:
+                out.append(row)
+        except requests.RequestException:
+            continue
+    return out
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -132,6 +184,27 @@ def short_domain(url: str) -> str:
 
 def reddit_link(post: dict) -> str:
     return f"https://www.reddit.com{post['permalink']}"
+
+
+def story_link(post: dict) -> str:
+    """Outbound article URL for the post title."""
+    if post.get("source") == "hackernews":
+        u = (post.get("url") or "").strip()
+        if u.startswith("http") and "news.ycombinator.com" not in u:
+            return u
+        return post["permalink"]
+    permalink = reddit_link(post)
+    ext_url = post.get("url", permalink)
+    if "reddit.com" in ext_url or "redd.it" in ext_url:
+        ext_url = permalink
+    return ext_url
+
+
+def comments_link(post: dict) -> str:
+    """Thread / comments URL."""
+    if post.get("source") == "hackernews":
+        return post["permalink"]
+    return reddit_link(post)
 
 
 def fmt_num(n: int) -> str:
@@ -188,7 +261,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fingerguns: A Reddit tech digest</title>
+  <title>Fingerguns: Reddit &amp; Hacker News digest</title>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
@@ -205,6 +278,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       --red:       #e05252;
       --radius:    10px;
       --font:      'Inter', 'Segoe UI', system-ui, sans-serif;
+      /* Source cues — cool violet (Reddit) vs warm amber (HN), far apart on the spectrum */
+      --src-reddit:       #8b5cf6;
+      --src-reddit-soft:  #a78bfa;
+      --src-reddit-deep:  #6d28d9;
+      --src-hn:           #f59e0b;
+      --src-hn-soft:      #fbbf24;
+      --src-hn-deep:      #d97706;
     }}
 
     html {{ scroll-behavior: smooth; }}
@@ -315,27 +395,76 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       border-color: var(--accent);
       color: #fff;
     }}
+    .source-btns {{
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }}
+    .source-label {{
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }}
+    .source-btn {{
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      padding: 6px 13px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: var(--font);
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }}
+    .source-btn:hover {{ color: var(--text); }}
+    .source-btn.active[data-src="reddit"] {{
+      border-color: var(--src-reddit);
+      background: rgba(139,92,246,0.14);
+      color: var(--src-reddit-soft);
+    }}
+    .source-btn.active[data-src="hackernews"] {{
+      border-color: var(--src-hn);
+      background: rgba(245,158,11,0.14);
+      color: var(--src-hn-soft);
+    }}
 
-    /* ── Top 5 ── */
-    .top5-wrap {{
+    /* ── Top 5 row ── */
+    .top5-row {{
       padding: 24px 24px 0;
       display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
       justify-content: center;
+      max-width: 960px;
+      margin: 0 auto;
+    }}
+    .top5-col {{
+      flex: 1 1 340px;
+      max-width: 460px;
+      min-width: 280px;
     }}
     .top5-card {{
       width: 100%;
-      max-width: 720px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: hidden;
       position: relative;
     }}
-    .top5-card::before {{
+    .top5-card--reddit::before {{
       content: '';
       display: block;
       height: 3px;
-      background: linear-gradient(90deg, #f0c040, #ff6314, #9b59b6);
+      background: linear-gradient(90deg, var(--src-reddit-soft), var(--src-reddit), var(--src-reddit-deep));
+    }}
+    .top5-card--hn::before {{
+      content: '';
+      display: block;
+      height: 3px;
+      background: linear-gradient(90deg, var(--src-hn-soft), var(--src-hn), var(--src-hn-deep));
     }}
     .top5-header {{
       display: flex;
@@ -430,6 +559,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       overflow: hidden;
       display: flex;
       flex-direction: column;
+    }}
+    .sub-card[data-source="reddit"] {{
+      border-left: 4px solid var(--src-reddit);
+    }}
+    .sub-card[data-source="hackernews"] {{
+      border-left: 4px solid var(--src-hn);
     }}
     .sub-card.hidden {{ display: none; }}
     .sub-header {{
@@ -579,7 +714,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 
 <header>
-  <div class="logo">Fingerguns: A Reddit tech digest</div>
+  <div class="logo">Fingerguns: Reddit &amp; Hacker News digest</div>
   <span class="generated">Generated {generated_at}</span>
 </header>
 
@@ -591,19 +726,36 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <div class="search-wrap">
   <input id="search" type="text" placeholder="Search posts…" oninput="applyFilters()" />
   <div class="time-btns">
+    <span class="source-label">When</span>
     <button class="time-btn" data-window="86400"   onclick="setTimeWindow(86400, this)">Past day</button>
     <button class="time-btn" data-window="604800"  onclick="setTimeWindow(604800, this)">Past week</button>
     <button class="time-btn" data-window="2592000" onclick="setTimeWindow(2592000, this)">Past month</button>
   </div>
+  <div class="source-btns">
+    <span class="source-label">Source</span>
+    <button type="button" class="source-btn active" data-src="reddit" onclick="toggleSource(this)">Reddit</button>
+    <button type="button" class="source-btn active" data-src="hackernews" onclick="toggleSource(this)">Hacker News</button>
+  </div>
 </div>
 
-<div class="top5-wrap" id="top5-wrap">
-  <div class="top5-card">
-    <div class="top5-header">
-      <span class="top5-header-title">&#x26A1; Top 5</span>
-      <span class="top5-header-sub">highest-scored stories &middot; duplicates removed</span>
+<div class="top5-row" id="top5-row">
+  <div class="top5-col" data-source-panel="reddit">
+    <div class="top5-card top5-card--reddit">
+      <div class="top5-header">
+        <span class="top5-header-title">Reddit Top 5</span>
+        <span class="top5-header-sub">across tech subs &middot; duplicates removed</span>
+      </div>
+      <div id="reddit-top5-items"></div>
     </div>
-    <div id="top5-items"></div>
+  </div>
+  <div class="top5-col" data-source-panel="hackernews">
+    <div class="top5-card top5-card--hn">
+      <div class="top5-header">
+        <span class="top5-header-title">Hacker News Top 5</span>
+        <span class="top5-header-sub">from front page &middot; duplicates removed</span>
+      </div>
+      <div id="hn-top5-items"></div>
+    </div>
   </div>
 </div>
 
@@ -612,9 +764,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </main>
 
 <footer>
-  Data sourced from <a href="https://www.reddit.com" target="_blank">Reddit</a> public API ·
-  {total_posts} posts across {total_subs} subreddits ·
-  <a href="https://www.reddit.com/r/technology" target="_blank">r/technology</a>
+  Data from <a href="https://www.reddit.com" target="_blank">Reddit</a> public API
+  &amp; <a href="https://github.com/HackerNews/API" target="_blank">Hacker News</a> (Firebase)
+  &middot; {total_posts} posts in grid &middot; Generated locally once daily
 </footer>
 
 {script_block}
@@ -629,13 +781,11 @@ def build_post_html(post: dict) -> str:
     num_comms  = post.get("num_comments", 0)
     created    = post.get("created_utc", 0)
     domain     = html.escape(short_domain(post.get("url", "")))
-    flair      = html.escape((post.get("link_flair_text") or "")[:40])
+    flair_raw  = post.get("link_flair_text") or ""
+    flair      = html.escape(str(flair_raw)[:40])
     nsfw       = post.get("over_18", False)
-    permalink  = reddit_link(post)
-    ext_url    = post.get("url", permalink)
-    # If the link goes back to reddit itself, point to the comments thread
-    if "reddit.com" in ext_url or "redd.it" in ext_url:
-        ext_url = permalink
+    permalink  = comments_link(post)
+    ext_url    = story_link(post)
 
     flair_tag  = f'<span class="flair">{flair}</span>' if flair else ""
     nsfw_tag   = '<span class="nsfw-badge">NSFW</span>' if nsfw else ""
@@ -710,18 +860,27 @@ def build_card_html(sub_info: dict, posts: list[dict], embed_limit: int = EMBED_
     name   = sub_info["name"]
     label  = sub_info["label"]
     color  = sub_info["color"]
+    src    = sub_info["source"]
     # Embed top posts by score; JS will re-rank and slice to 5 per time window
     pool   = sorted(posts, key=lambda p: p.get("score", 0), reverse=True)[:embed_limit]
 
     items_html = "".join(build_post_html(p) for p in pool)
     count = len(pool)
+    if src == "hackernews":
+        sub_title = (
+            f'<a href="https://news.ycombinator.com/" target="_blank" rel="noopener">'
+            f'{html.escape(label)}</a>'
+        )
+    else:
+        sub_title = (
+            f'<a href="https://www.reddit.com/r/{html.escape(name)}" target="_blank" '
+            f'rel="noopener">r/{html.escape(label)}</a>'
+        )
     return f"""
-  <div class="sub-card" data-sub="{html.escape(name)}">
+  <div class="sub-card" data-sub="{html.escape(name)}" data-source="{html.escape(src)}">
     <div class="sub-header">
       <span class="sub-dot" style="background:{color}"></span>
-      <span class="sub-name">
-        <a href="https://www.reddit.com/r/{html.escape(name)}" target="_blank" rel="noopener">r/{html.escape(label)}</a>
-      </span>
+      <span class="sub-name">{sub_title}</span>
       <span class="sub-count" data-total="{count}"><span class="sub-count-num">{count}</span> posts</span>
     </div>
     <ul class="post-list">{items_html}</ul>
@@ -789,31 +948,34 @@ function esc(s) {{
 
 const RANK_COLORS = ['#f0c040', '#b0bec5', '#cd7f32', '#4a5068', '#4a5068'];
 
-function renderTop5(timeWindow) {{
-  const now      = Math.floor(Date.now() / 1000);
-  const filtered = timeWindow === 0
-    ? ALL_POSTS
-    : ALL_POSTS.filter(p => (now - p.created) <= timeWindow);
-  const top5     = selectTop5(filtered);
-  const container = document.getElementById('top5-items');
-  if (!container) return;
+function top5BadgeLabel(post) {{
+  return post.source === 'hackernews' ? 'Hacker News' : ('r/' + post.sub);
+}}
 
+function renderTop5Column(containerId, pool, timeWindow) {{
+  const now = Math.floor(Date.now() / 1000);
+  const slice = timeWindow === 0 ? pool : pool.filter(p => (now - p.created) <= timeWindow);
+  const top5 = selectTop5(slice);
+  const container = document.getElementById(containerId);
+  if (!container) return;
   if (top5.length === 0) {{
-    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No posts found in this time window.</div>';
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No posts in this window.</div>';
     return;
   }}
-
   container.innerHTML = top5.map((post, i) => {{
-    const color     = SUB_COLORS[post.sub] || '#5c6bc0';
+    const color = post.source === 'hackernews'
+      ? '#f59e0b'
+      : (SUB_COLORS[post.sub] || '#5c6bc0');
     const rankColor = RANK_COLORS[i];
     const domainTag = post.domain ? `<span class="post-domain">${{esc(post.domain)}}</span>` : '';
+    const lbl = top5BadgeLabel(post);
     return `
-    <div class="top5-item" data-created="${{post.created}}">
+    <div class="top5-item" data-created="${{post.created}}" data-source="${{post.source}}">
       <span class="top5-rank" style="color:${{rankColor}}">${{i + 1}}</span>
       <div class="top5-body">
         <a class="top5-title" href="${{esc(post.url)}}" target="_blank" rel="noopener">${{esc(post.title)}}</a>
         <div class="top5-meta">
-          <span class="top5-sub-badge" style="background:${{color}}">r/${{esc(post.sub)}}</span>
+          <span class="top5-sub-badge" style="background:${{color}}">${{esc(lbl)}}</span>
           <span class="top5-score">&#x25B2; ${{fmtNum(post.score)}}</span>
           ${{domainTag}}
           <span>${{relTime(post.created)}}</span>
@@ -822,19 +984,40 @@ function renderTop5(timeWindow) {{
       </div>
     </div>`;
   }}).join('');
+}}
 
-  // re-apply search after re-render
+function renderTop5(timeWindow) {{
+  const redditP = ALL_POSTS.filter(p => p.source === 'reddit');
+  const hnP = ALL_POSTS.filter(p => p.source === 'hackernews');
+  renderTop5Column('reddit-top5-items', redditP, timeWindow);
+  renderTop5Column('hn-top5-items', hnP, timeWindow);
+  applyTop5SearchFilter();
+}}
+
+function applyTop5SearchFilter() {{
   const q = document.getElementById('search').value.toLowerCase();
-  if (q) {{
-    document.querySelectorAll('.top5-item').forEach(item => {{
-      const text = item.querySelector('.top5-title')?.textContent.toLowerCase() || '';
-      item.classList.toggle('hidden', !text.includes(q));
-    }});
-  }}
+  document.querySelectorAll('.top5-item').forEach(item => {{
+    const text = item.querySelector('.top5-title')?.textContent.toLowerCase() || '';
+    item.classList.toggle('hidden', !!(q && !text.includes(q)));
+  }});
 }}
 
 let activeSubFilter  = 'all';
-let activeTimeWindow = 604800; // default: past week
+let activeTimeWindow = 604800;
+let showReddit       = true;
+let showHN           = true;
+
+function toggleSource(btn) {{
+  const src = btn.dataset.src;
+  const on = btn.classList.toggle('active');
+  if (src === 'reddit') showReddit = on;
+  else showHN = on;
+  document.querySelectorAll('[data-source-panel="' + src + '"]').forEach(el => {{
+    el.style.display = on ? '' : 'none';
+  }});
+  renderTop5(activeTimeWindow);
+  applyFilters();
+}}
 
 function filterSubs(filter, btn) {{
   activeSubFilter = filter;
@@ -861,9 +1044,10 @@ function applyFilters() {{
   const now = Math.floor(Date.now() / 1000);
 
   document.querySelectorAll('.sub-card').forEach(card => {{
+    const src = card.getAttribute('data-source') || '';
+
     const items = [...card.querySelectorAll('.post-item')];
 
-    // Hide all first, then pick top 5 within the active time + search window
     items.forEach(i => i.style.display = 'none');
 
     const matching = items.filter(item => {{
@@ -885,15 +1069,16 @@ function applyFilters() {{
     if (countEl)  countEl.textContent = shown;
     if (emptyMsg) emptyMsg.style.display = shown === 0 ? '' : 'none';
 
-    const subMatch = activeSubFilter === 'all' || card.dataset.sub === activeSubFilter;
-    card.style.display = (subMatch && shown > 0) ? '' : 'none';
+    const sub      = card.getAttribute('data-sub') || '';
+    const subMatch = activeSubFilter === 'all' || sub === activeSubFilter;
+    const sourceOk =
+      (src === 'reddit' && showReddit) ||
+      (src === 'hackernews' && showHN);
+
+    card.style.display = (sourceOk && subMatch && shown > 0) ? '' : 'none';
   }});
 
-  // Search filter on Top 5 items (time filtering is handled by renderTop5)
-  document.querySelectorAll('.top5-item').forEach(item => {{
-    const text = item.querySelector('.top5-title')?.textContent.toLowerCase() || '';
-    item.classList.toggle('hidden', !!(q && !text.includes(q)));
-  }});
+  applyTop5SearchFilter();
 }}
 
 document.addEventListener('DOMContentLoaded', () => {{
@@ -909,35 +1094,34 @@ def build_html(all_posts: dict[str, list[dict]]) -> str:
     cards_html  = ""
     filter_btns = ""
     total_posts = 0
-    active_subs = 0
     all_post_data: list[dict] = []
 
-    for sub in SUBREDDITS:
+    for sub in CARD_FEEDS:
         name  = sub["name"]
         posts = all_posts.get(name, [])
         if not posts:
             continue
-        active_subs += 1
         total_posts += min(len(posts), EMBED_PER_CARD)
-        cards_html  += build_card_html(sub, posts, EMBED_PER_CARD)
-        filter_btns += f'<button class="filter-btn" data-filter="{html.escape(name)}" onclick="filterSubs(\'{html.escape(name)}\', this)">{html.escape(sub["label"])}</button>\n  '
+        cards_html += build_card_html(sub, posts, EMBED_PER_CARD)
+        filter_btns += (
+            f'<button class="filter-btn" data-filter="{html.escape(name)}" '
+            f'onclick="filterSubs(\'{html.escape(name)}\', this)">{html.escape(sub["label"])}</button>\n  '
+        )
+        src = sub["source"]
         for p in posts:
-            ext_url = p.get("url", "")
-            permalink = reddit_link(p)
-            if "reddit.com" in ext_url or "redd.it" in ext_url:
-                ext_url = permalink
             all_post_data.append({
-                "title":    p.get("title", ""),
-                "score":    p.get("score", 0),
-                "created":  int(p.get("created_utc", 0)),
-                "url":      ext_url,
-                "permalink": permalink,
-                "sub":      name,
-                "comments": p.get("num_comments", 0),
-                "domain":   short_domain(p.get("url", "")),
+                "title":     p.get("title", ""),
+                "score":     p.get("score", 0),
+                "created":   int(p.get("created_utc", 0)),
+                "url":       story_link(p),
+                "permalink": comments_link(p),
+                "sub":       name,
+                "source":    src,
+                "comments":  p.get("num_comments", 0),
+                "domain":    short_domain(p.get("url", "")),
             })
 
-    sub_colors = {s["name"]: s["color"] for s in SUBREDDITS}
+    sub_colors = {c["name"]: c["color"] for c in CARD_FEEDS}
     posts_json = json.dumps(all_post_data, ensure_ascii=False)
     colors_json = json.dumps(sub_colors, ensure_ascii=False)
     generated_at = datetime.now().strftime("%b %d, %Y at %H:%M")
@@ -950,24 +1134,27 @@ def build_html(all_posts: dict[str, list[dict]]) -> str:
         cards=cards_html,
         script_block=script_block,
         total_posts=total_posts,
-        total_subs=active_subs,
     )
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Reddit Tech News Scraper")
+    parser = argparse.ArgumentParser(description="Reddit + Hacker News tech digest scraper")
     parser.add_argument("--output",    default="index.html", help="Output HTML file (default: index.html)")
     parser.add_argument("--min-score", type=int, default=MIN_SCORE, help=f"Minimum post score (default: {MIN_SCORE})")
     parser.add_argument("--open",      action="store_true", help="Open the page in a browser when done")
     args = parser.parse_args()
 
-    print("Reddit Tech News Scraper")
+    print("Tech digest scraper (Reddit + Hacker News)")
     print("=" * 40)
-    print(f"Fetching posts from {len(SUBREDDITS)} tech subreddits…\n")
+    print(f"Fetching Reddit ({len(SUBREDDITS)} subs)…\n")
 
     all_posts = fetch_all(min_score=args.min_score)
+
+    print("\n  Hacker News (Firebase API) …", end=" ", flush=True)
+    all_posts["hackernews"] = fetch_hackernews(min_score=args.min_score)
+    print(f"{len(all_posts['hackernews'])} posts")
 
     print(f"\nBuilding HTML…")
     page_html = build_html(all_posts)
