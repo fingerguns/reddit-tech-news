@@ -112,7 +112,6 @@ SUBREDDITS = [
     {"name": "TOR",             "label": "Tor",              "color": "#7e57c2"},
     {"name": "opensourceintelligence", "label": "OSINT",         "color": "#5d4037"},
     # ── Hardware & electronics ───────────────────────────────────
-    {"name": "pcmasterrace",    "label": "PCMR",             "color": "#ff4500"},
     {"name": "buildapc",        "label": "Build a PC",       "color": "#0288d1"},
     {"name": "nvidia",          "label": "NVIDIA",           "color": "#76b900"},
     {"name": "AMD",             "label": "AMD",              "color": "#ed1c24"},
