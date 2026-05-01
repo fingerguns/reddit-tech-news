@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from collections import defaultdict
+
+try:
     import requests
 except ImportError:
     print("Missing dependency: run  pip install requests")
@@ -560,7 +562,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       min-height: 100vh;
     }}
 
-    /* ── Narrative digest rail (HN + Reddit) ── */
+    /* ── Narrative digest rail (HN + Reddit + TechMeme) ── */
     .digest-body-wrap {{
       padding-right: calc(var(--digest-rail-w) + 1rem);
       min-height: 100vh;
@@ -580,15 +582,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       font-size: 13px;
     }}
     .digest-rail-inner {{
-      padding: 20px 16px 32px;
+      padding: 72px 16px 32px;
     }}
-    .digest-rail-kicker {{
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
+    .digest-rail-headline {{
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.35;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin: 0 0 8px;
+    }}
+    .digest-rail-lede {{
+      font-size: 11px;
+      line-height: 1.55;
       color: var(--muted);
-      margin: 0 0 14px;
+      margin: 0 0 16px;
     }}
     .digest-rail-toggle {{
       display: flex;
@@ -624,7 +632,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       font-size: 12.5px;
       line-height: 1.65;
       color: var(--text);
-      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-family: var(--font);
+    }}
+    .digest-topic {{
+      margin: 0 0 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }}
+    .digest-topic:last-child {{
+      border-bottom: none;
+      padding-bottom: 0;
+      margin-bottom: 0;
+    }}
+    .digest-topic-title {{
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 6px;
+    }}
+    .digest-topic-body {{
+      font-size: 12.5px;
+      line-height: 1.65;
+      color: var(--text);
     }}
     .digest-rail-summary.digest-rail-muted {{
       color: var(--muted);
@@ -1164,7 +1195,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         z-index: 1;
       }}
       .digest-rail-inner {{
-        padding: 20px 16px 28px;
+        padding: 24px 16px 28px;
       }}
     }}
 
@@ -1270,15 +1301,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 </div><!-- .digest-body-wrap -->
 
-<aside class="digest-rail" aria-label="Hacker News and Reddit narrative summaries">
+<aside class="digest-rail" aria-label="The past day in tech summary">
   <div class="digest-rail-inner">
-    <p class="digest-rail-kicker">Narrative snapshot</p>
+    <h2 class="digest-rail-headline">The past day in tech -- a summary</h2>
+    <p class="digest-rail-lede">Themes from Reddit, Hacker News, and TechMeme for the window you pick below. Regenerated on each daily scrape.</p>
     <div class="digest-rail-toggle" role="group" aria-label="Summary time window">
       <button type="button" class="digest-rail-btn" data-digest-period="day" aria-pressed="true">Day</button>
       <button type="button" class="digest-rail-btn" data-digest-period="week" aria-pressed="false">Week</button>
       <button type="button" class="digest-rail-btn" data-digest-period="month" aria-pressed="false">Month</button>
     </div>
-    <p id="digest-rail-summary" class="digest-rail-summary digest-rail-muted">Loading…</p>
+    <div id="digest-rail-summary" class="digest-rail-summary digest-rail-muted" role="region" aria-label="Summary body">Loading…</div>
     <p id="digest-rail-meta" class="digest-rail-meta" aria-live="polite"></p>
   </div>
 </aside>
@@ -1419,7 +1451,7 @@ SUMMARY_TOPICS: list[tuple[str, tuple[str, ...]]] = [
     )),
     ("Courts, trials & accountability", (
         "trial", "lawsuit", "court", "judge", "doj ", "sec ", "ftc", "subpoena",
-        "testimony", "verdict", "settlement", "antitrust", "muskr", " altman",
+        "testimony", "verdict", "settlement", "antitrust", "musk", "altman",
     )),
     ("Meta & social platforms", (
         "meta ", "facebook", "instagram", "whatsapp", "threads", "oculus",
@@ -1565,7 +1597,7 @@ def _openai_feed_summaries(bundles_prompt: str) -> dict[str, list[dict]] | None:
         "messages": [
             {
                 "role": "system",
-                "content": "You compress noisy tech headline feeds into short narrative summaries.",
+                "content": "You compress Reddit, Hacker News, and TechMeme headlines into topical sidebar summaries. Return JSON only; each period is an array of {topic, text} objects.",
             },
             {
                 "role": "user",
@@ -1988,15 +2020,33 @@ function initDigestRail() {{
     }}
   }}
 
+  function escapeDigestHtml(s) {{
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }}
+  function digestSectionsHtml(sections) {{
+    if (!Array.isArray(sections) || sections.length === 0) return '';
+    return sections.map(sec => {{
+      const topic = escapeDigestHtml(sec.topic || 'Topic');
+      const text = escapeDigestHtml(sec.text || '').replace(/\\n/g, '<br>');
+      return '<article class="digest-topic"><h3 class="digest-topic-title">' + topic + '</h3><div class="digest-topic-body">' + text + '</div></article>';
+    }}).join('');
+  }}
+
   function render() {{
     if (!bodyEl || !metaEl) return;
-    if (!summaryData || typeof summaryData[period] !== 'string') {{
+    let sections = summaryData ? summaryData[period] : null;
+    if (typeof sections === 'string') {{
+      const t = sections.trim();
+      sections = t ? [{{ topic: 'Overview', text: t }}] : [];
+    }}
+    if (!summaryData || !Array.isArray(sections) || sections.length === 0) {{
+      bodyEl.innerHTML = '';
       bodyEl.textContent = 'Digest narrative unavailable for this build.';
       bodyEl.classList.add('digest-rail-muted');
       metaEl.textContent = '';
       return;
     }}
-    bodyEl.textContent = summaryData[period];
+    bodyEl.innerHTML = digestSectionsHtml(sections);
     bodyEl.classList.remove('digest-rail-muted');
 
     const parts = [];
