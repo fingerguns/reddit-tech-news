@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Reddit + Hacker News + TechMeme Tech Digest
-Fetches from Reddit subreddits, Hacker News RSS-style river (Firebase API),
+Fetches from Reddit subreddits,
+Hacker News top stories from the last 30 days (Algolia Search API; Firebase fallback),
 and TechMeme (official RSS), generates a static HTML page.
 Usage: python scraper.py
        python scraper.py --output my_page.html
@@ -20,8 +21,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-
-try:
+from collections import defaultdict
     import requests
 except ImportError:
     print("Missing dependency: run  pip install requests")
@@ -158,9 +158,15 @@ EMBED_PER_CARD = 25   # posts to embed per card (JS picks top 5 from these)
 MIN_SCORE      = 10   # minimum upvote score to display
 REQUEST_DELAY  = 2.0  # seconds between requests (Reddit recommends ≥2s unauthenticated)
 
+# HN: Algolia Search API — stories in rolling window, ranked by popularity in the index.
+HN_ALGOLIA_URL           = "https://hn.algolia.com/api/v1/search"
+HN_WINDOW_DAYS         = 30
+HN_ALGOLIA_HITS_PER_PAGE = 100
+HN_ALGOLIA_MAX_PAGES     = 5  # up to 500 hits before dedupe
+# Fallback if Algolia fails — Firebase official API (current front page only).
 HN_TOP_URL  = "https://hacker-news.firebaseio.com/v0/topstories.json"
 HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{}.json"
-HN_FETCH_N  = 80  # top story IDs to resolve (one batch per scraper run)
+HN_FETCH_N  = 80
 
 # Cards below Top 5: all Reddit subs + Hacker News + TechMeme (source labels JS/CSS)
 CARD_FEEDS = [{**s, "source": "reddit"} for s in SUBREDDITS] + [
@@ -213,6 +219,34 @@ def fetch_all(min_score: int = MIN_SCORE) -> dict[str, list[dict]]:
     return results
 
 
+def normalize_algolia_hit(hit: dict) -> dict | None:
+    """Map Algolia HN search hit to the same shape as Firebase items."""
+    title = (hit.get("title") or "").strip()
+    if not title:
+        return None
+    try:
+        hid = int(hit["objectID"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    url = (hit.get("url") or "").strip()
+    permalink = f"https://news.ycombinator.com/item?id={hid}"
+    if not url:
+        url = permalink
+    return {
+        "id": f"hn_{hid}",
+        "title": title,
+        "score": int(hit.get("points") or 0),
+        "created_utc": float(hit.get("created_at_i") or 0),
+        "url": url,
+        "permalink": permalink,
+        "num_comments": int(hit.get("num_comments") or 0),
+        "source": "hackernews",
+        "subreddit": "hackernews",
+        "link_flair_text": None,
+        "over_18": False,
+    }
+
+
 def normalize_hn_item(raw: dict | None) -> dict | None:
     if not raw or raw.get("type") != "story":
         return None
@@ -236,8 +270,52 @@ def normalize_hn_item(raw: dict | None) -> dict | None:
     }
 
 
-def fetch_hackernews(min_score: int = MIN_SCORE) -> list[dict]:
-    """Top HN stories — single batch during the same scraper run as Reddit."""
+def _fetch_hackernews_algolia_recent(min_score: int) -> list[dict]:
+    """Top stories from the last HN_WINDOW_DAYS (Algolia index ranking ≈ popularity)."""
+    cutoff = int(datetime.now(timezone.utc).timestamp()) - HN_WINDOW_DAYS * 86400
+    by_id: dict[int, dict] = {}
+    page = 0
+    while page < HN_ALGOLIA_MAX_PAGES:
+        try:
+            r = requests.get(
+                HN_ALGOLIA_URL,
+                params={
+                    "tags": "story",
+                    "numericFilters": f"created_at_i>{cutoff}",
+                    "hitsPerPage": HN_ALGOLIA_HITS_PER_PAGE,
+                    "page": page,
+                },
+                headers=HEADERS,
+                timeout=22,
+            )
+            r.raise_for_status()
+            data = r.json()
+        except (requests.RequestException, ValueError, TypeError):
+            break
+
+        hits = data.get("hits") or []
+        if not hits:
+            break
+
+        for hit in hits:
+            row = normalize_algolia_hit(hit)
+            if not row or row["score"] < min_score:
+                continue
+            hid = int(hit["objectID"])
+            prev = by_id.get(hid)
+            if prev is None or row["score"] > prev["score"]:
+                by_id[hid] = row
+
+        nb_pages = int(data.get("nbPages") or 0)
+        page += 1
+        if page >= nb_pages:
+            break
+
+    return sorted(by_id.values(), key=lambda p: p["score"], reverse=True)
+
+
+def _fetch_hackernews_firebase(min_score: int) -> list[dict]:
+    """Legacy: current front page via Firebase (used only if Algolia fails)."""
     try:
         r = requests.get(HN_TOP_URL, headers=HEADERS, timeout=15)
         r.raise_for_status()
@@ -256,6 +334,14 @@ def fetch_hackernews(min_score: int = MIN_SCORE) -> list[dict]:
         except requests.RequestException:
             continue
     return out
+
+
+def fetch_hackernews(min_score: int = MIN_SCORE) -> list[dict]:
+    """HN stories from the last ~30 days (Algolia); Firebase front page if Algolia is unavailable."""
+    posts = _fetch_hackernews_algolia_recent(min_score)
+    if posts:
+        return posts
+    return _fetch_hackernews_firebase(min_score)
 
 
 def _techmeme_outbound_url(description: str, fallback: str) -> str:
@@ -461,6 +547,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       --src-tm:           #14b8a6;
       --src-tm-soft:      #2dd4bf;
       --src-tm-deep:      #0d9488;
+      --digest-rail-w: min(22rem, 34vw);
     }}
 
     html {{ scroll-behavior: smooth; }}
@@ -471,6 +558,84 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       font-size: 14px;
       line-height: 1.6;
       min-height: 100vh;
+    }}
+
+    /* ── Narrative digest rail (HN + Reddit) ── */
+    .digest-body-wrap {{
+      padding-right: calc(var(--digest-rail-w) + 1rem);
+      min-height: 100vh;
+    }}
+    .digest-rail {{
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: var(--digest-rail-w);
+      height: 100vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-gutter: stable;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      z-index: 85;
+      font-size: 13px;
+    }}
+    .digest-rail-inner {{
+      padding: 20px 16px 32px;
+    }}
+    .digest-rail-kicker {{
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 14px;
+    }}
+    .digest-rail-toggle {{
+      display: flex;
+      gap: 0;
+      margin: 0 0 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }}
+    .digest-rail-btn {{
+      flex: 1;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-family: var(--font);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 8px 4px;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+    }}
+    .digest-rail-btn + .digest-rail-btn {{
+      border-left: 1px solid var(--border);
+    }}
+    .digest-rail-btn[aria-pressed="true"] {{
+      background: rgba(92,107,192,0.28);
+      color: var(--text);
+    }}
+    .digest-rail-summary {{
+      margin: 0;
+      font-size: 12.5px;
+      line-height: 1.65;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }}
+    .digest-rail-summary.digest-rail-muted {{
+      color: var(--muted);
+    }}
+    .digest-rail-meta {{
+      margin: 16px 0 0;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      line-height: 1.5;
     }}
 
     /* ── Header ── */
@@ -987,6 +1152,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }}
     footer a {{ color: var(--muted); }}
 
+    @media (max-width: 960px) {{
+      .digest-body-wrap {{ padding-right: 0; }}
+      .digest-rail {{
+        position: relative;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        border-left: none;
+        border-top: 1px solid var(--border);
+        z-index: 1;
+      }}
+      .digest-rail-inner {{
+        padding: 20px 16px 28px;
+      }}
+    }}
+
     @media (max-width: 600px) {{
       main {{ padding: 12px; gap: 12px; }}
       header {{ padding: 10px 12px; }}
@@ -1009,6 +1190,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </style>
 </head>
 <body>
+<div class="digest-body-wrap">
 
 <header>
   <div class="logo">Fingerguns: Reddit, HN &amp; TechMeme digest</div>
@@ -1059,7 +1241,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="top5-card top5-card--hn">
       <div class="top5-header">
         <span class="top5-header-title">Hacker News Top 5</span>
-        <span class="top5-header-sub">from front page &middot; duplicates removed</span>
+        <span class="top5-header-sub">past 30 days &middot; duplicates removed</span>
       </div>
       <div id="hn-top5-items"></div>
     </div>
@@ -1081,10 +1263,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 <footer>
   Data from <a href="https://www.reddit.com" target="_blank">Reddit</a> public API,
-  <a href="https://github.com/HackerNews/API" target="_blank">Hacker News</a> (Firebase),
+  <a href="https://hn.algolia.com/api" target="_blank">Hacker News</a> (Algolia Search; <a href="https://github.com/HackerNews/API" target="_blank">Firebase</a> fallback),
   &amp; <a href="https://www.techmeme.com/" target="_blank">TechMeme</a> RSS
   &middot; {total_posts} posts in grid &middot; Generated locally once daily
 </footer>
+
+</div><!-- .digest-body-wrap -->
+
+<aside class="digest-rail" aria-label="Hacker News and Reddit narrative summaries">
+  <div class="digest-rail-inner">
+    <p class="digest-rail-kicker">Narrative snapshot</p>
+    <div class="digest-rail-toggle" role="group" aria-label="Summary time window">
+      <button type="button" class="digest-rail-btn" data-digest-period="day" aria-pressed="true">Day</button>
+      <button type="button" class="digest-rail-btn" data-digest-period="week" aria-pressed="false">Week</button>
+      <button type="button" class="digest-rail-btn" data-digest-period="month" aria-pressed="false">Month</button>
+    </div>
+    <p id="digest-rail-summary" class="digest-rail-summary digest-rail-muted">Loading…</p>
+    <p id="digest-rail-meta" class="digest-rail-meta" aria-live="polite"></p>
+  </div>
+</aside>
 
 {script_block}
 </body>
@@ -1210,8 +1407,277 @@ def build_card_html(sub_info: dict, posts: list[dict], embed_limit: int = EMBED_
   </div>"""
 
 
-def build_script_block(posts_json: str, colors_json: str) -> str:
-    return f"""<script>
+DEFAULT_SUMMARY_TOPIC = "Industry & products"
+
+# Keyword buckets → sidebar topic headings (first match wins by score).
+SUMMARY_TOPICS: list[tuple[str, tuple[str, ...]]] = [
+    ("Artificial intelligence & policy", (
+        "openai", "anthropic", "claude", "gpt-", "chatgpt", "gemini", "copilot",
+        "machine learning", " llm", "large language", "deepmind", "xai", "grok",
+        " neural", "diffusion", "stable diffusion", "midjourney", "mistral",
+        "artificial intelligence",
+    )),
+    ("Courts, trials & accountability", (
+        "trial", "lawsuit", "court", "judge", "doj ", "sec ", "ftc", "subpoena",
+        "testimony", "verdict", "settlement", "antitrust", "muskr", " altman",
+    )),
+    ("Meta & social platforms", (
+        "meta ", "facebook", "instagram", "whatsapp", "threads", "oculus",
+        "smart glasses", "ray-ban",
+    )),
+    ("Markets & finance", (
+        "bond", "ipo", "valuation", "raised ", "funding", "vc ", "prediction market",
+        "investors", " billion", "million seed",
+    )),
+    ("Security & crypto", (
+        "hack", "ransomware", "cve-", "vulnerability", "zero-day", "malware",
+        "cryptocurrency", "bitcoin", "ethereum", "defi", "wallet", "north korea",
+        "breach", "stolen", "drift protocol",
+    )),
+    ("Europe & infrastructure", (
+        "eu ", "european", "gdpr", "spain", "germany", "france", "belgium",
+        "parliament", "brussels", "laliga", "nuclear", "decommission",
+    )),
+    ("Browsers, OSS & dev tooling", (
+        "mozilla", "chrome", "firefox", "webkit", "browser", "open source",
+        " zig ", "gcc ", "llvm", "kernel",
+    )),
+    ("Consumer tech & chips", (
+        "apple ", "iphone", "ipad", "google ", "android", "youtube", "windows ",
+        "microsoft ", "steam", "nvidia", "amd ", "intel ", "raspberry pi",
+    )),
+    ("Science & research", (
+        "study finds", "research", "scientists", "paper ", "journal ",
+        " genome", "biology", "physics", "climate",
+    )),
+]
+
+SUMMARY_TOPIC_ORDER = [t[0] for t in SUMMARY_TOPICS] + [DEFAULT_SUMMARY_TOPIC]
+
+
+def _classify_summary_topic(title: str) -> str:
+    tl = (title or "").lower()
+    best_score = 0
+    best_name = DEFAULT_SUMMARY_TOPIC
+    for name, keys in SUMMARY_TOPICS:
+        score = sum(1 for k in keys if k in tl)
+        if score > best_score:
+            best_score = score
+            best_name = name
+    return best_name
+
+
+def _synthesize_topic_text(titles: list[str]) -> str:
+    if not titles:
+        return ""
+    quoted = [f"“{_truncate_prose(t, 130)}”" for t in titles if t.strip()]
+    if not quoted:
+        return ""
+    if len(quoted) == 1:
+        return f"The thread was dominated by {quoted[0]}."
+    if len(quoted) == 2:
+        return f"Coverage centered on {quoted[0]} and {quoted[1]}."
+    return (
+        "Stories clustered around "
+        + ", ".join(quoted[:-1])
+        + f", and {quoted[-1]}."
+    )
+
+
+def _fallback_topic_sections(posts: list[dict], *, max_topics: int = 8, max_per_topic: int = 4) -> list[dict]:
+    buckets: dict[str, list[dict]] = defaultdict(list)
+    seen_urls: set[str] = set()
+    ranked = sorted(posts, key=lambda p: int(p.get("score") or 0), reverse=True)
+    for p in ranked:
+        url = (p.get("url") or "").split("?")[0].rstrip("/").lower()
+        if url:
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+        title = (p.get("title") or "").strip()
+        if not title:
+            continue
+        topic = _classify_summary_topic(title)
+        if len(buckets[topic]) >= max_per_topic:
+            continue
+        buckets[topic].append(p)
+
+    sections: list[dict] = []
+    for topic in SUMMARY_TOPIC_ORDER:
+        items = buckets.get(topic, [])
+        if not items:
+            continue
+        titles = [(x.get("title") or "").strip() for x in items]
+        text = _synthesize_topic_text(titles)
+        if text:
+            sections.append({"topic": topic, "text": text})
+        if len(sections) >= max_topics:
+            break
+    return sections
+
+
+def _truncate_prose(s: str, max_len: int) -> str:
+    if len(s) <= max_len:
+        return s
+    cut = s[:max_len].rstrip()
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut + "…"
+
+
+def _titles_for_summaries(posts: list[dict], cap: int = 22) -> list[str]:
+    ranked = sorted(posts, key=lambda p: int(p.get("score") or 0), reverse=True)
+    out: list[str] = []
+    for p in ranked[:cap]:
+        t = (p.get("title") or "").strip()
+        if t:
+            out.append(t)
+    return out
+
+
+def _normalize_period_sections(val: object) -> list[dict]:
+    """Coerce LLM JSON (or legacy flat string) into validated topic sections."""
+    if isinstance(val, str):
+        s = val.strip()
+        return [{"topic": "Overview", "text": s}] if s else []
+    if not isinstance(val, list):
+        return []
+    out: list[dict] = []
+    for item in val:
+        if not isinstance(item, dict):
+            continue
+        topic = str(item.get("topic", "")).strip()
+        body = str(item.get("text", "")).strip()
+        if topic and body:
+            out.append({"topic": topic[:180], "text": body[:4200]})
+    return out
+
+
+def _openai_feed_summaries(bundles_prompt: str) -> dict[str, list[dict]] | None:
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+    payload = {
+        "model": model,
+        "response_format": {"type": "json_object"},
+        "temperature": 0.45,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You compress noisy tech headline feeds into short narrative summaries.",
+            },
+            {
+                "role": "user",
+                "content": bundles_prompt,
+            },
+        ],
+    }
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=120,
+        )
+        r.raise_for_status()
+        body = r.json()
+        raw = body["choices"][0]["message"]["content"]
+        parsed = json.loads(raw)
+        sections_map = {
+            k: _normalize_period_sections(parsed.get(k)) for k in ("day", "week", "month")
+        }
+        if sum(len(v) for v in sections_map.values()) == 0:
+            return None
+        return sections_map
+    except (requests.RequestException, KeyError, json.JSONDecodeError, IndexError):
+        return None
+
+
+def build_feed_summaries(all_posts: dict[str, list[dict]]) -> dict[str, object]:
+    """Topical summaries for day/week/month from Reddit + HN + TechMeme timestamps."""
+    now_ts = datetime.now(timezone.utc).timestamp()
+    reddit_all: list[dict] = []
+    for s in SUBREDDITS:
+        reddit_all.extend(all_posts.get(s["name"], []))
+    hn_all = list(all_posts.get("hackernews", []))
+    tm_all = list(all_posts.get("techmeme", []))
+
+    def in_window(posts: list[dict], secs: int) -> list[dict]:
+        cutoff = now_ts - secs
+        return [p for p in posts if float(p.get("created_utc") or 0) >= cutoff]
+
+    windows_sec = {"day": 86400, "week": 7 * 86400, "month": 30 * 86400}
+
+    bundles_text_parts: list[str] = []
+    merged_by_window: dict[str, list[dict]] = {}
+
+    for key in ("day", "week", "month"):
+        secs = windows_sec[key]
+        hn_posts = in_window(hn_all, secs)
+        rd_posts = in_window(reddit_all, secs)
+        tm_posts = in_window(tm_all, secs)
+        merged_by_window[key] = hn_posts + rd_posts + tm_posts
+
+        hn_t = _titles_for_summaries(hn_posts)
+        rd_t = _titles_for_summaries(rd_posts)
+        tm_t = _titles_for_summaries(tm_posts)
+
+        human = {"day": "DAY (~24 hours)", "week": "WEEK (~7 days)", "month": "MONTH (~30 days)"}[key]
+        bundles_text_parts.append(
+            f"{human}\nHacker News:\n"
+            + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(hn_t))
+            + "\n\nReddit (aggregated tech subs):\n"
+            + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(rd_t))
+            + "\n\nTechMeme:\n"
+            + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(tm_t))
+        )
+
+    bundles_prompt = (
+        "\n\n---\n\n".join(bundles_text_parts)
+        + "\n\nYou write topical summaries for a fixed right-hand sidebar on a tech digest page.\n"
+        "Audience: engineers skim-reading.\n\n"
+        "Rules:\n"
+        "- Return ONLY valid JSON with keys exactly: day, week, month.\n"
+        "- Each value MUST be a JSON array of objects with keys \"topic\" and \"text\".\n"
+        "- topic: short Title Case heading.\n"
+        "- text: 2–4 sentences, plain English only (no markdown, no bullets).\n"
+        "- Cluster related headlines; synthesize across Reddit, Hacker News, AND TechMeme together.\n"
+        "- Include roughly 5–10 topics per window when there is enough signal; omit thin topics.\n"
+        "- Neutral, understated tone.\n"
+    )
+
+    texts_obj = _openai_feed_summaries(bundles_prompt)
+    if texts_obj is None:
+        texts_obj = {
+            k: _fallback_topic_sections(merged_by_window[k])
+            for k in ("day", "week", "month")
+        }
+
+    return {
+        "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "feeds": ["Hacker News", "Reddit", "TechMeme"],
+        "windows": {
+            "day": "~24h by story timestamp",
+            "week": "~7d",
+            "month": "~30d",
+        },
+        "day": texts_obj["day"],
+        "week": texts_obj["week"],
+        "month": texts_obj["month"],
+    }
+
+
+def _summaries_json_for_html(obj: dict) -> str:
+    return json.dumps(obj, ensure_ascii=False).replace("<", "\\u003c")
+
+
+def build_script_block(posts_json: str, colors_json: str, summaries_json_lit: str) -> str:
+    return f"""<script type="application/json" id="digest-feed-summaries-data">{summaries_json_lit}</script>
+<script>
 const ALL_POSTS   = {posts_json};
 const SUB_COLORS  = {colors_json};
 
@@ -1465,10 +1931,96 @@ function applyFilters() {{
 document.addEventListener('DOMContentLoaded', () => {{
   const weekBtn = document.querySelector('.time-btn[data-window="604800"]');
   if (weekBtn) weekBtn.classList.add('active');
+
+  initDigestRail();
+
   renderTop5(activeTimeWindow);
   syncNoneAllButtons();
   applyFilters();
 }});
+
+function initDigestRail() {{
+  const STORAGE = 'digest-rail-period';
+  let summaryData = null;
+  try {{
+    const el = document.getElementById('digest-feed-summaries-data');
+    if (el && el.textContent.trim()) {{
+      summaryData = JSON.parse(el.textContent);
+    }}
+  }} catch (err) {{
+    console.warn('digest summaries', err);
+  }}
+
+  const bodyEl = document.getElementById('digest-rail-summary');
+  const metaEl = document.getElementById('digest-rail-meta');
+  const toggles = document.querySelectorAll('.digest-rail-btn[data-digest-period]');
+
+  function setPressed(active) {{
+    toggles.forEach(btn => {{
+      const p = btn.getAttribute('data-digest-period');
+      btn.setAttribute('aria-pressed', p === active ? 'true' : 'false');
+    }});
+    try {{
+      localStorage.setItem(STORAGE, active);
+    }} catch (e2) {{}}
+  }}
+
+  let stored = null;
+  try {{
+    stored = localStorage.getItem(STORAGE);
+  }} catch (e3) {{}}
+  let period = ['day', 'week', 'month'].includes(stored) ? stored : 'day';
+
+  function formatTs(iso) {{
+    try {{
+      const d = new Date(iso);
+      if (!isFinite(d.valueOf())) return '';
+      const o = {{
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      }};
+      return d.toLocaleString(undefined, o);
+    }} catch (e4) {{
+      return iso || '';
+    }}
+  }}
+
+  function render() {{
+    if (!bodyEl || !metaEl) return;
+    if (!summaryData || typeof summaryData[period] !== 'string') {{
+      bodyEl.textContent = 'Digest narrative unavailable for this build.';
+      bodyEl.classList.add('digest-rail-muted');
+      metaEl.textContent = '';
+      return;
+    }}
+    bodyEl.textContent = summaryData[period];
+    bodyEl.classList.remove('digest-rail-muted');
+
+    const parts = [];
+    if (summaryData.generatedAt) {{
+      parts.push('Updated ' + formatTs(summaryData.generatedAt));
+    }}
+    parts.push('Refreshes with the daily scrape; stays fixed until the next run.');
+    metaEl.textContent = parts.join('. ') + '.';
+  }}
+
+  setPressed(period);
+  render();
+
+  toggles.forEach(btn => {{
+    btn.addEventListener('click', () => {{
+      const p = btn.getAttribute('data-digest-period');
+      if (!p || p === period) return;
+      period = p;
+      setPressed(period);
+      render();
+    }});
+  }});
+}}
+
 </script>"""
 
 
@@ -1510,7 +2062,10 @@ def build_html(all_posts: dict[str, list[dict]]) -> str:
     colors_json = json.dumps(sub_colors, ensure_ascii=False)
     generated_at = datetime.now().strftime("%b %d, %Y at %H:%M")
 
-    script_block = build_script_block(posts_json, colors_json)
+    summaries = build_feed_summaries(all_posts)
+    summaries_lit = _summaries_json_for_html(summaries)
+
+    script_block = build_script_block(posts_json, colors_json, summaries_lit)
 
     return HTML_TEMPLATE.format(
         generated_at=generated_at,
@@ -1536,7 +2091,7 @@ def main():
 
     all_posts = fetch_all(min_score=args.min_score)
 
-    print("\n  Hacker News (Firebase API) …", end=" ", flush=True)
+    print("\n  Hacker News (Algolia, last 30d; Firebase fallback) …", end=" ", flush=True)
     all_posts["hackernews"] = fetch_hackernews(min_score=args.min_score)
     print(f"{len(all_posts['hackernews'])} posts")
 

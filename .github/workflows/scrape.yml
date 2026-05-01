@@ -1,5 +1,8 @@
 name: Daily digest (Reddit + Hacker News)
 
+# Optional repo secret OPENAI_API_KEY: enables narrative “digest rail” copy (HN + Reddit)
+# alongside the scraped grid. Omit it for headline-derived summaries only.
+
 on:
   schedule:
     - cron: '0 11 * * *'  # 7:00 AM ET (UTC-4 during EDT)
@@ -24,6 +27,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run scraper
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
         run: python scraper.py
 
       - name: Commit & push updated page
