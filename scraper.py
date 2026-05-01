@@ -1499,20 +1499,49 @@ def _classify_summary_topic(title: str) -> str:
     return best_name
 
 
+_DIGEST_TITLE_PREFIX = re.compile(r"^(Show HN|Ask HN|Tell HN):\s*", re.IGNORECASE)
+
+
+def _digest_clause_from_title(title: str) -> str:
+    """Short clause for fallback prose — no quotation marks, not a headline paste."""
+    t = _DIGEST_TITLE_PREFIX.sub("", title).strip()
+    if not t:
+        return ""
+    return _truncate_prose(t, 118)
+
+
 def _synthesize_topic_text(titles: list[str]) -> str:
-    if not titles:
+    """Fallback narrative: framed paragraphs that weave themes, not quoted headline lists."""
+    clauses = [_digest_clause_from_title(t) for t in titles if t.strip()]
+    clauses = [c for c in clauses if c]
+    if not clauses:
         return ""
-    quoted = [f"“{_truncate_prose(t, 130)}”" for t in titles if t.strip()]
-    if not quoted:
-        return ""
-    if len(quoted) == 1:
-        return f"The thread was dominated by {quoted[0]}."
-    if len(quoted) == 2:
-        return f"Coverage centered on {quoted[0]} and {quoted[1]}."
-    return (
-        "Stories clustered around "
-        + ", ".join(quoted[:-1])
-        + f", and {quoted[-1]}."
+    if len(clauses) == 1:
+        return _truncate_prose(
+            "This bucket mostly hinged on one storyline worth watching: "
+            f"{clauses[0]}. The discussion treated it as the focal point rather than background noise.",
+            720,
+        )
+    if len(clauses) == 2:
+        return _truncate_prose(
+            "Two angles kept resurfacing: "
+            f"{clauses[0]}; separately, coverage also leaned toward {clauses[1]}.",
+            720,
+        )
+    # 3+ clauses: weave without quoting
+    head = clauses[0]
+    mid = clauses[1:-1]
+    tail = clauses[-1]
+    bridge = "; ".join(mid) if mid else ""
+    if bridge:
+        core = f"{head}; {bridge}; and {tail}"
+    else:
+        core = f"{head}; and {tail}"
+    core = _truncate_prose(core, 520)
+    return _truncate_prose(
+        "Across Hacker News, Reddit, and TechMeme the signal condensed into a single ongoing thread: "
+        f"{core}. Nothing here reads as one isolated post—the overlap is what gives it weight.",
+        780,
     )
 
 
@@ -1593,11 +1622,16 @@ def _openai_feed_summaries(bundles_prompt: str) -> dict[str, list[dict]] | None:
     payload = {
         "model": model,
         "response_format": {"type": "json_object"},
-        "temperature": 0.45,
+        "temperature": 0.55,
         "messages": [
             {
                 "role": "system",
-                "content": "You compress Reddit, Hacker News, and TechMeme headlines into topical sidebar summaries. Return JSON only; each period is an array of {topic, text} objects.",
+                "content": (
+                    "You write editorial sidebar summaries from noisy headline lists (Reddit, Hacker News, TechMeme). "
+                    "Return JSON only. Each period is an array of {topic, text}. "
+                    "Never paste headlines verbatim, never wrap text in quotation marks, never bullet enumerations. "
+                    "Paraphrase into flowing prose."
+                ),
             },
             {
                 "role": "user",
@@ -1676,7 +1710,8 @@ def build_feed_summaries(all_posts: dict[str, list[dict]]) -> dict[str, object]:
         "- Return ONLY valid JSON with keys exactly: day, week, month.\n"
         "- Each value MUST be a JSON array of objects with keys \"topic\" and \"text\".\n"
         "- topic: short Title Case heading.\n"
-        "- text: 2–4 sentences, plain English only (no markdown, no bullets).\n"
+        "- text: 2–4 sentences of continuous prose. Paraphrase themes; do NOT quote or closely reproduce headlines.\n"
+        "- Do NOT use curly/smart quotes, markdown, or bullet characters.\n"
         "- Cluster related headlines; synthesize across Reddit, Hacker News, AND TechMeme together.\n"
         "- Include roughly 5–10 topics per window when there is enough signal; omit thin topics.\n"
         "- Neutral, understated tone.\n"
